@@ -12,20 +12,22 @@ export interface Task {
     task_id: string;
     /** 文件名 */
     file_name: string;
-    /** PDF文件的URL */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     pdf_url: string;
-    /** Markdown文件的URL */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     md_url: string;
-    /** 图像数据 */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     images: string;
-    /** 模型的JSON数据 */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     model_json: string;
-    /** 中间处理的JSON数据 */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     middle_json: string;
-    /** 内容列表的JSON数据 */
+    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
     content_list_json: string;
     /** 任务状态 */
     status: string;
+    /** 任务创建时间（ISO 8601），用于排序展示 */
+    created_at: string;
 }
 
 /**

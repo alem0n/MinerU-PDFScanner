@@ -22,5 +22,13 @@ pub fn load_migrations() -> Vec<Migration> {
         "#,
     });
 
+    // v2: 新增 created_at 排序字段
+    migrations.push(Migration {
+        version: 2,
+        description: "add_created_at_to_tasks",
+        kind: MigrationKind::Up,
+        sql: "ALTER TABLE tasks ADD COLUMN created_at TEXT;",
+    });
+
     migrations
 }

@@ -42,6 +42,7 @@ export function Component() {
               const task = {
                 ...res,
                 status: "pending",
+                created_at: new Date().toISOString(),
               };
               await taskRepository.create(task);
               taskService.addTask(task);

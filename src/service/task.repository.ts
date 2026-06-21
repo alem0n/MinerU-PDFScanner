@@ -14,7 +14,7 @@ export class TaskRepository {
 
   async create(task: Task): Promise<void> {
     await this.db.execute(
-      "INSERT INTO tasks (task_id, file_name, pdf_url, md_url, images, model_json, middle_json, content_list_json, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      "INSERT INTO tasks (task_id, file_name, pdf_url, md_url, images, model_json, middle_json, content_list_json, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
       [
         task.task_id,
         task.file_name,
@@ -25,6 +25,7 @@ export class TaskRepository {
         task.middle_json,
         task.content_list_json,
         task.status,
+        task.created_at,
       ]
     );
     
@@ -66,6 +67,7 @@ export class TaskRepository {
     if(where){
       sql += " WHERE " + where;
     }
+    sql += " ORDER BY created_at ASC";
     const result = await this.db.select<Task[]>(sql,bindValues);
     return result;
   }
