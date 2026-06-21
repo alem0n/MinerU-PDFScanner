@@ -26,12 +26,13 @@ import {
   Radio,
   Button,
   Toast,
+  Banner,
 } from "@douyinfe/semi-ui";
 
 import { Page } from "@/components/Page";
 import { useNavigate } from "react-router-dom";
 import { taskService } from "@/service/task.service";
-import { apiClient } from "@/service/api.client";
+import { healthGuard, MAX_RETRY_COUNT } from "@/service/health-guard.service";
 import type {
   ParseTaskParams,
   BackendOption,
@@ -157,6 +158,9 @@ export function Component() {
   const [params, setParams] = useState<ParseTaskParams>({ ...DEFAULT_PARAMS });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [healthCheckFailed, setHealthCheckFailed] = useState(false);
+  const [healthCheckError, setHealthCheckError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [previewCategory, setPreviewCategory] = useState<string>("all");
 
@@ -294,24 +298,40 @@ export function Component() {
       params,
     );
 
-    setSubmitting(true);
-
     // ---- 步骤 1：健康检查 ----
-    try {
-      console.log("[CreateTask] 执行健康检查 GET /health …");
-      await apiClient.healthCheck();
-      console.log("[CreateTask] 健康检查通过");
-    } catch (err) {
-      console.warn("[CreateTask] 健康检查失败:", err);
+    setChecking(true);
+    setHealthCheckFailed(false);
+    setHealthCheckError("");
+
+    const result = await healthGuard.check();
+
+    if (!result.ok) {
+      console.warn(`[CreateTask] 健康检查失败 (第 ${result.attempt} 次): ${result.error}`);
+      setHealthCheckFailed(true);
+      setHealthCheckError(result.error ?? "后端服务不可用");
+      setChecking(false);
+
       Toast.error({
-        content: "后端服务不可用，请检查服务是否已启动",
+        content: result.error ?? "后端服务不可用，请检查服务是否已启动",
         duration: 3,
       });
-      setSubmitting(false);
+
+      // 提示剩余重试次数
+      if (!healthGuard.isExhausted) {
+        const remaining = MAX_RETRY_COUNT - healthGuard.failCount;
+        Toast.info({
+          content: `可点击"重试连接"重新检查（剩余 ${remaining} 次）`,
+          duration: 3,
+        });
+      }
       return;
     }
 
+    console.log("[CreateTask] 健康检查通过");
+    setChecking(false);
+
     // ---- 步骤 2：提交任务 ----
+    setSubmitting(true);
     try {
       const tasks = await taskService.submitBatch([selectedFile], params);
       const task = tasks[0];
@@ -343,6 +363,53 @@ export function Component() {
     }
   }, [selectedFile, params, navigate]);
 
+  /** 重试健康检查 */
+  const handleRetryCheck = useCallback(async () => {
+    if (healthGuard.isExhausted) {
+      Toast.warning({
+        content: `已连续重试 ${MAX_RETRY_COUNT} 次仍无法连接，请检查服务配置`,
+        duration: 4,
+      });
+      return;
+    }
+
+    console.log("[CreateTask] 用户触发重试健康检查");
+    setChecking(true);
+
+    const result = await healthGuard.check();
+
+    if (result.ok) {
+      console.log("[CreateTask] 重试健康检查通过");
+      setHealthCheckFailed(false);
+      setHealthCheckError("");
+      setChecking(false);
+      healthGuard.reset();
+      Toast.success({ content: "后端服务已恢复连接", duration: 2 });
+    } else {
+      console.warn(`[CreateTask] 重试健康检查失败 (第 ${result.attempt} 次): ${result.error}`);
+      setHealthCheckError(result.error ?? "后端服务不可用");
+      setChecking(false);
+
+      Toast.error({
+        content: `重试失败: ${result.error}`,
+        duration: 3,
+      });
+
+      if (healthGuard.isExhausted) {
+        Toast.warning({
+          content: `多次重试仍无法连接，请检查服务配置`,
+          duration: 4,
+        });
+      } else {
+        const remaining = MAX_RETRY_COUNT - healthGuard.failCount;
+        Toast.info({
+          content: `可继续重试（剩余 ${remaining} 次）`,
+          duration: 3,
+        });
+      }
+    }
+  }, []);
+
   /** 清除所有配置 */
   const handleClear = useCallback(() => {
     console.log("[CreateTask] 清除所有配置");
@@ -365,6 +432,34 @@ export function Component() {
             选择文件并配置解析参数后提交任务
           </Text>
         </div>
+
+        {/* ---- 健康检查失败内联警告 ---- */}
+        {healthCheckFailed && (
+          <Banner
+            type="danger"
+            closeIcon
+            onClose={() => {
+              setHealthCheckFailed(false);
+              setHealthCheckError("");
+              healthGuard.reset();
+            }}
+            description={
+              <div className="flex items-center gap-3">
+                <span>⚠️ 后端服务不可用：{healthCheckError}，文件无法提交</span>
+                <Button
+                  size="small"
+                  theme="solid"
+                  type="danger"
+                  loading={checking}
+                  disabled={checking || healthGuard.isExhausted}
+                  onClick={handleRetryCheck}
+                >
+                  {checking ? "检查中…" : healthGuard.isExhausted ? "已达重试上限" : "重试连接"}
+                </Button>
+              </div>
+            }
+          />
+        )}
 
         {/* ================================================ */}
         {/* 双栏并排布局：上传区（左）+ 配置面板（右）       */}
@@ -398,11 +493,11 @@ export function Component() {
                 </div>
               )}
 
-              {/* 提交中状态 */}
-              {submitting && (
+              {/* 提交中 / 检查中 状态 */}
+              {(submitting || checking) && (
                 <Text type="secondary" className="text-center">
                   <span className="inline-block animate-pulse">
-                    正在提交任务，请稍候...
+                    {checking ? "正在检查服务连接…" : "正在提交任务，请稍候..."}
                   </span>
                 </Text>
               )}
@@ -570,16 +665,17 @@ export function Component() {
 
               {/* ---- 操作按钮（右对齐） ---- */}
               <div className="flex justify-end gap-3 pt-2 mt-auto">
-                <Button onClick={handleClear} disabled={submitting}>
+                <Button onClick={handleClear} disabled={submitting || checking}>
                   清除
                 </Button>
                 <Button
                   type="primary"
                   theme="solid"
-                  loading={submitting}
+                  loading={submitting || checking}
                   onClick={handleSubmit}
+                  disabled={healthCheckFailed}
                 >
-                  转换
+                  {checking ? "检查服务中…" : "转换"}
                 </Button>
               </div>
             </div>

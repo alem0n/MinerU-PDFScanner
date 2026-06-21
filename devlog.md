@@ -124,3 +124,54 @@
 - PNG/JPG/DOCX/PPTX/XLSX 文件类型暂缓实现，当前仅展示禁用态占位 UI
 - 健康检查守卫逻辑已集成，但健康检查模块本身的完整测试需联调验证
 - 参数预览面板中的 JSON 使用 `useMemo` 计算，大参数场景下性能无瓶颈
+
+## 2026-06-21 — 任务 E：健康检查前置守卫
+
+### 概述
+将 createTask 页面中原有的内联健康检查逻辑抽取为独立、可复用的守卫服务模块，并完善 UI 状态反馈（loading 态、错误内联警告、重试机制），提升用户在后端不可用时的操作体验。
+
+### 实施步骤记录
+
+#### 步骤 1：创建守卫服务模块（E.1）
+- 新建 `src/service/health-guard.service.ts`
+- 导出 `HealthGuard` 类（单例 `healthGuard`），封装核心方法：
+  - `check()`：调用 `apiClient.healthCheck()`（5 秒超时），成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }` 并递增计数
+  - `reset()`：重置连续失败计数
+  - `failCount` / `isExhausted`：追踪重试状态，上限 3 次
+- 异常细分：`AbortError` → "响应超时"；`Error` → 提取 message；兜底 "后端服务不可用"
+- 关键节点输出 `console.log` / `console.warn` 日志
+
+#### 步骤 2：重构提交流程（E.2）
+- 移除 `handleSubmit` 中的内联 `apiClient.healthCheck()` 调用，替换为 `healthGuard.check()`
+- 新增状态：`checking`、`healthCheckFailed`、`healthCheckError`
+- 提交按钮在检查中显示 `loading={true}` + 文字 "检查服务中…"
+- 上传区状态文字根据 `checking` 切换为 "正在检查服务连接…" / "正在提交任务，请稍候..."
+- 上传区在 `checking` 时禁用，阻止重复操作
+
+#### 步骤 3：实现错误提示与内联警告（E.3）
+- 健康检查失败时：`Toast.error("后端服务不可用")` 通知
+- 页面顶部插入 `Banner type="danger"` 内联警告条（可关闭），显示后端错误信息
+- 关闭警告时同时重置 `healthGuard` 计数
+
+#### 步骤 4：实现重试机制（E.4）
+- 新增 `handleRetryCheck` 回调：Banner 中的 "重试连接" 按钮
+- 重试成功 → 清除警告，`Toast.success("后端服务已恢复连接")`
+- 重试失败 → 更新错误信息，提示剩余次数
+- 3 次上限后按钮变为 "已达重试上限" 禁用态，`Toast.warning` 提示检查服务配置
+- 每次重试都输出 `console.log` 日志
+
+#### 步骤 5：TypeScript 验证（E.5）
+- 执行 `tsc --noEmit` 通过，零类型错误
+- 注意：移除了未使用的 `apiClient` 导入（由 healthGuard 内部间接使用）
+- SemiUI 组件使用 `Banner` 替代 `Alert`（SemiUI 无 Alert 导出）
+
+### 变更文件
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/service/health-guard.service.ts` | 新建 | 守卫服务模块，99 行 |
+| `src/pages/createTask/index.tsx` | 修改 | 集成守卫状态、Banner 警告、重试按钮 |
+| `devlog.md` | 追加 | 本记录 |
+
+### 待解决问题
+- 手动联调验证（E.6）需实际启动/停止后端服务进行，当前未执行
+- `health-guard.service.ts` 无单元测试，后续可补充
