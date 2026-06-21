@@ -81,17 +81,17 @@ export interface ParseTaskParams {
   server_url?: string | null;
   /** 返回 Markdown 内容，默认 true */
   return_md?: boolean;
-  /** 返回中间 JSON，默认 false */
+  /** 返回中间 JSON，默认 true */
   return_middle_json?: boolean;
-  /** 返回模型输出 JSON，默认 false */
+  /** 返回模型输出 JSON，默认 true */
   return_model_output?: boolean;
-  /** 返回内容列表 JSON，默认 false */
+  /** 返回内容列表 JSON，默认 true */
   return_content_list?: boolean;
-  /** 返回提取的图片，默认 false */
+  /** 返回提取的图片，默认 true */
   return_images?: boolean;
-  /** 以 ZIP 格式返回结果，默认 false */
+  /** 以 ZIP 格式返回结果，默认 true */
   response_format_zip?: boolean;
-  /** 在 ZIP 结果中包含原始输入文件，默认 false；仅在 response_format_zip=true 时生效 */
+  /** 在 ZIP 结果中包含原始输入文件，默认 true */
   return_original_file?: boolean;
   /** 将最终 Markdown/内容列表生成延迟到客户端，默认 false */
   client_side_output_generation?: boolean;

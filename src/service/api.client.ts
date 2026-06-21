@@ -52,6 +52,8 @@ function appendParamsToFormData(fd: FormData, params: ParseTaskParams): void {
       fd.append(key, String(value));
     }
   }
+
+  // 不再强制覆盖；默认值由 DEFAULT_PARAMS（前端 UI）或上层调用方传入
 }
 
 /**
