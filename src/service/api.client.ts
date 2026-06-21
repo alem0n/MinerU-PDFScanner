@@ -56,10 +56,30 @@ function appendParamsToFormData(fd: FormData, params: ParseTaskParams): void {
 
 /**
  * 获取后端基础 URL（末尾不含斜杠）
+ *
+ * 自动检测运行环境：
+ * - 开发模式（纯浏览器 `npm run dev` 或 `tauri dev`）→ 走 Vite proxy（/proxy-api）
+ * - 生产模式（Tauri 构建包）→ 直连后端（无 CORS 限制）
+ *
+ * 设计要点：
+ * - import.meta.env.DEV 在 Vite 开发模式（含 tauri dev）下为 true
+ * - 开发模式下 Vite 开发服务器始终在运行，可以代理请求
+ * - 生产模式下需要读取用户配置的 baseUrl，因为 Vite 代理不可用
  */
 async function getBaseUrl(): Promise<string> {
-  const config = await configService.get();
-  return (config.baseUrl ?? "http://127.0.0.1:8080").replace(/\/+$/, "");
+  // 开发模式（含纯浏览器 dev + tauri dev）：走 Vite proxy，避免跨域
+  if (import.meta.env.DEV) {
+    return "/proxy-api";
+  }
+
+  // 生产环境（Tauri 构建包）：直连后端，Tauri webview 无 CORS 限制
+  try {
+    const config = await configService.get();
+    return (config.baseUrl ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+  } catch {
+    // 配置读取失败时使用默认值
+    return "http://127.0.0.1:8000";
+  }
 }
 
 /**
