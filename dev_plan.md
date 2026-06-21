@@ -503,28 +503,7 @@ GET /health
 
 ---
 
-### 任务 H：输出整理适配
-
-重写：
-
-```typescript
-loadTask()
-```
-
-改为：
-
-```text
-从 ZIP 内容读取
-```
-
-保留：
-
-* remark-math
-* rehype-katex
-
----
-
-### 任务 I：任务列表排序改造
+### 任务 H：任务列表排序改造
 
 新增：
 
@@ -542,15 +521,15 @@ ORDER BY created_at ASC
 
 ---
 
-### 任务 J：Setting 页面更新
+### 任务 I：Setting 页面更新
 
 | 旧配置          | 新配置     |
 | ------------ | ------- |
 | uploadUrl    | baseUrl |
 | queryTaskUrl | 删除      |
 | fileUrl      | 删除      |
-| apiKey       | 保留      |
-| apiSecret    | 保留      |
+| apiKey       | 删除      |
+| apiSecret    | 删除      |
 
 ---
 

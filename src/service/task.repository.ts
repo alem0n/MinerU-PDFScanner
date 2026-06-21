@@ -58,6 +58,7 @@ export class TaskRepository {
     
   }
   /**
+   * 查询任务列表，支持 WHERE 条件过滤，结果按 created_at ASC 排序。
    * @param where 条件 比如   "status = '$1' AND file_name LIKE '%.pdf'"
    * @param bindValues 绑定值 
    * @returns 
@@ -68,6 +69,7 @@ export class TaskRepository {
       sql += " WHERE " + where;
     }
     sql += " ORDER BY created_at ASC";
+    console.log(`[TaskRepository] list() SQL: ${sql}`, bindValues ?? "");
     const result = await this.db.select<Task[]>(sql,bindValues);
     return result;
   }
