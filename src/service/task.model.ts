@@ -45,9 +45,7 @@ export type LangOption =
 export type BackendOption =
   | "pipeline"
   | "vlm-engine"
-  | "hybrid-engine"
-  | "vlm-http-client"
-  | "hybrid-http-client";
+  | "hybrid-engine";
 
 /**
  * 混合引擎解析力度
@@ -79,7 +77,7 @@ export interface ParseTaskParams {
   table_enable?: boolean;
   /** 启用图片/图表分析（VLM/hybrid 后端），默认 true */
   image_analysis?: boolean;
-  /** （仅 vlm/hybrid-http-client 后端）兼容 OpenAI 的服务地址 */
+  /** 兼容 OpenAI 的服务地址（仅外部服务模式使用） */
   server_url?: string | null;
   /** 返回 Markdown 内容，默认 true */
   return_md?: boolean;
