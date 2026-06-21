@@ -108,8 +108,23 @@ export class TaskService {
   /** 批次内任务间间隔（毫秒） */
   private readonly BATCH_GAP_MS = 100;
 
+  /**
+   * 运行时排队位置存储。
+   * key: task_id, value: 当前排队位置（queued_ahead）。
+   * 仅用于实时 UI 展示，不持久化到数据库。
+   */
+  private queuePositions: Map<string, number> = new Map();
+
   constructor(taskRepository: TaskRepository) {
     this.taskRepository = taskRepository;
+  }
+
+  /**
+   * 获取指定任务的当前排队位置。
+   * 返回 undefined 表示该任务不在排队中（已完成/失败/未知）。
+   */
+  getQueuePosition(taskId: string): number | undefined {
+    return this.queuePositions.get(taskId);
   }
 
   // ========================================================
@@ -221,17 +236,33 @@ export class TaskService {
    * - 中间状态变更时同步更新 DB
    */
   private async pollTaskUntilComplete(task: Task): Promise<void> {
+    let lastQueuedAhead: number | undefined;
+
     while (true) {
       try {
         const statusResponse = await apiClient.getTaskStatus(task.task_id);
         const currentStatus = statusResponse.status;
 
+        // ---- F.2: 提取 queued_ahead 并记录变化 ----
+        const queuedAhead = statusResponse.queued_ahead ?? 0;
+        this.queuePositions.set(task.task_id, queuedAhead);
+        if (queuedAhead !== lastQueuedAhead) {
+          console.log(
+            `[TaskService] 任务 ${task.task_id} (${
+              task.file_name
+            }) 排队位置变化: ${lastQueuedAhead ?? "?"} → ${queuedAhead}`,
+          );
+          lastQueuedAhead = queuedAhead;
+        }
+
         if (currentStatus === TaskStatus.Completed) {
+          this.queuePositions.delete(task.task_id);
           await this.handleTaskCompleted(task);
           return;
         }
 
         if (currentStatus === TaskStatus.Failed) {
+          this.queuePositions.delete(task.task_id);
           const errorMsg = statusResponse.error ?? "服务端处理失败";
           await this.handleTaskFailed(task, errorMsg);
           return;
@@ -249,6 +280,7 @@ export class TaskService {
 
         if (error instanceof ApiError && error.status === 404) {
           // 任务在后端不存在（可能是旧任务或已被清理）
+          this.queuePositions.delete(task.task_id);
           await this.handleTaskFailed(
             task,
             "任务在后端不存在，可能已被清理或使用了旧的任务 ID",

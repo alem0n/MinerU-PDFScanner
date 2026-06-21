@@ -175,3 +175,46 @@
 ### 待解决问题
 - 手动联调验证（E.6）需实际启动/停止后端服务进行，当前未执行
 - `health-guard.service.ts` 无单元测试，后续可补充
+
+## 2026-06-21 — 任务 F：轮询与顺序控制重构
+
+### 概述
+在已有批次粒度串行执行的基础上，增加 `queued_ahead` 排队位置信息的提取、存储与展示能力。
+
+### 实施步骤记录
+
+#### 步骤 1：运行时存储机制（F.1）
+- 在 `TaskService` 中新增 `queuePositions: Map<string, number>` 字段
+- 新增 `getQueuePosition(taskId: string): number | undefined` 公开方法
+- 该 Map 仅运行时存在，不持久化到 SQLite 数据库
+
+#### 步骤 2：轮询过程提取 queued_ahead（F.2）
+- 修改 `pollTaskUntilComplete()`，每次 `getTaskStatus` 后提取 `statusResponse.queued_ahead`
+- 写入 `queuePositions` Map 供 UI 实时读取
+- 值变化时输出 `console.log("[TaskService] 任务 xxx 排队位置变化: ? → N")`
+- 任务到达终态（completed/failed）时从 Map 中移除对应的 entry
+
+#### 步骤 3：任务列表页展示排队位置（F.3）
+- 新建 `QueueInfo` 组件，根据 `taskService.getQueuePosition()` 渲染排队信息：
+  - `pos > 0` → "排队中，前方 N 个任务"（警告色）
+  - `pos === 0` → "正在处理"（次级色）
+  - `pos === undefined` → "等待中…"
+- `StatusMap` 从硬编码 key 改为使用 `TaskStatus` 枚举值
+- `useRequest` 在查看 pending/processing 状态时启用 `pollingInterval: 3000ms`，使排队信息自动刷新
+- 状态标签增加兜底渲染，防止未定义的 status 值显示空白
+
+#### 步骤 4：TypeScript 验证（F.4）
+- 执行 `tsc --noEmit` 通过，零类型错误
+- 严格模式 `noUnusedLocals` / `noUnusedParameters` 无违规
+
+### 变更文件
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/service/task.service.ts` | 修改 | 新增 `queuePositions` Map、`getQueuePosition()`；修改 `pollTaskUntilComplete()` 提取 `queued_ahead` |
+| `src/pages/task/index.tsx` | 重写 | 新增 `QueueInfo` 组件、排队位置展示、轮询刷新、StatusMap 使用 TaskStatus 枚举 |
+| `devlog.md` | 追加 | 本记录 |
+
+### 待解决问题
+- 任务列表页的 `StatusMap` 已更新为使用 `TaskStatus` 枚举，但 DB 中可能仍存在旧 status 值（如 "done"/"error"），需联调验证
+- `queued_ahead` 展示依赖后端实际返回有效值，需启动后端服务验证端到端流程
+
