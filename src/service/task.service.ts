@@ -298,7 +298,11 @@ export class TaskService {
   // ========================================================
 
   /**
-   * 处理任务完成状态：更新 DB → 清除缓存 → 通知 → 触发下载
+   * 处理任务完成状态：更新 DB → 清除缓存 → 通知 → 自动下载（若配置了下载目录）
+   *
+   * 自动下载行为：
+   * - 配置了 downloadDir：自动保存 ZIP 到该目录并通知
+   * - 未配置 downloadDir：仅通知"任务已完成"，用户可在任务列表页手动点击下载
    */
   private async handleTaskCompleted(task: Task): Promise<void> {
     clearCache("tasks_" + task.status);
@@ -307,13 +311,30 @@ export class TaskService {
     task.status = TaskStatus.Completed;
     await this.taskRepository.update(task);
 
-    Notification.success({
-      title: "任务处理成功",
-      content: `文件：${task.file_name} 处理成功`,
-    });
+    const config = await configService.get();
 
-    // 触发结果下载
-    await this.downloadAndSave(task);
+    if (config.downloadDir) {
+      console.log(
+        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 处理成功，检测到下载目录: ${config.downloadDir}，开始自动下载`,
+      );
+      const savedPath = await this.downloadAndSave(task);
+      if (savedPath) {
+        Notification.success({
+          title: "任务处理成功",
+          content: `文件：${task.file_name} 结果已保存到 ${savedPath}`,
+          duration: 5,
+        });
+      }
+    } else {
+      console.log(
+        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 处理成功，未配置下载目录，仅通知`,
+      );
+      Notification.success({
+        title: "任务处理成功",
+        content: `文件：${task.file_name} 处理成功，点击"下载"按钮获取结果`,
+        duration: 5,
+      });
+    }
   }
 
   /**
@@ -339,8 +360,9 @@ export class TaskService {
   /**
    * 下载任务结果 ZIP 并保存到本地。
    *
-   * 当前实现：下载 ZIP Blob，后续通过 Tauri 对话框选择保存路径。
-   * 保存逻辑将在安装 @tauri-apps/plugin-dialog 后完善。
+   * 保存策略（由 saveBlobToFile 内部根据 downloadDir 决定）：
+   * - 配置了 downloadDir：ZIP 自动写入该目录，不对话框提示
+   * - 未配置 downloadDir：弹出系统保存对话框让用户选择
    *
    * @param task  已完成的任务
    * @returns     保存的文件路径，失败时返回 null
@@ -348,6 +370,9 @@ export class TaskService {
   async downloadAndSave(task: Task): Promise<string | null> {
     try {
       const blob = await apiClient.downloadTaskResult(task.task_id);
+      console.log(
+        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 下载结果大小: ${blob.size} bytes`,
+      );
 
       if (blob.size === 0) {
         throw new Error("下载内容为空");
@@ -357,12 +382,15 @@ export class TaskService {
       const arrayBuffer = await blob.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
 
-      // 使用 Tauri 保存对话框选择保存位置
-      // 注意：这需要 @tauri-apps/plugin-dialog 支持
-      const filePath = await this.saveBlobToFile(task, uint8Array);
+      // 读取当前配置的下载目录
+      const config = await configService.get();
+      const filePath = await this.saveBlobToFile(task, uint8Array, config.downloadDir);
+      if (filePath) {
+        console.log(`[TaskService] 结果已保存: ${filePath}`);
+      }
       return filePath;
     } catch (error) {
-      console.error(`下载任务 ${task.task_id} 结果失败:`, error);
+      console.error(`[TaskService] 下载任务 ${task.task_id} (${task.file_name}) 结果失败:`, error);
 
       Notification.error({
         title: "下载失败",
@@ -374,41 +402,75 @@ export class TaskService {
 
   /**
    * 将文件内容保存到本地磁盘。
-   * 使用 Tauri 对话框让用户选择保存位置。
+   *
+   * 两种保存模式：
+   * 1. 自动保存模式（downloadDir 有值）：直接写入 downloadDir，文件名自动生成
+   * 2. 手动保存模式（downloadDir 无值）：弹出系统保存对话框让用户选择路径
+   *
+   * 文件名规则：{原文件名不含扩展名}_{task_id前8位}.zip
+   *
+   * @param task         已完成的任务
+   * @param data         文件二进制数据
+   * @param downloadDir  可选，配置的下载目录；为 null/undefined 时弹出对话框
+   * @returns            保存的文件路径，失败或取消时返回 null
    */
   private async saveBlobToFile(
     task: Task,
     data: Uint8Array,
+    downloadDir?: string,
   ): Promise<string | null> {
-    try {
-      // 动态导入 dialog 插件，避免编译时硬依赖
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const { writeFile } = await import("@tauri-apps/plugin-fs");
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    const { join } = await import("@tauri-apps/api/path");
 
-      const fileName = `${task.file_name.replace(/\.[^/.]+$/, "")}.zip`;
+    const fileNameBase = task.file_name.replace(/\.[^/.]+$/, "");
+    const taskIdShort = task.task_id.length > 8 ? task.task_id.slice(0, 8) : task.task_id;
+    const zipFileName = `${fileNameBase}_${taskIdShort}.zip`;
+
+    if (downloadDir) {
+      // ---- 自动保存模式：写入配置目录 ----
+      try {
+        const savePath = await join(downloadDir, zipFileName);
+        console.log(`[TaskService] 自动保存到: ${savePath}`);
+        await writeFile(savePath, data);
+        console.log(`[TaskService] 写入完成: ${savePath} (${data.length} bytes)`);
+        return savePath;
+      } catch (error) {
+        console.error(`[TaskService] 自动保存失败 (downloadDir=${downloadDir}):`, error);
+        Notification.error({
+          title: "自动保存失败",
+          content: `文件：${task.file_name} 未能保存到 ${downloadDir}，请检查目录权限`,
+        });
+        return null;
+      }
+    }
+
+    // ---- 手动保存模式：弹出对话框 ----
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
 
       const savePath = await save({
-        defaultPath: fileName,
+        defaultPath: zipFileName,
         filters: [{ name: "ZIP 文件", extensions: ["zip"] }],
       });
 
       if (!savePath) {
-        // 用户取消了对话框
+        console.log(`[TaskService] 用户取消了保存对话框`);
         return null;
       }
 
+      console.log(`[TaskService] 用户选择路径: ${savePath}`);
       await writeFile(savePath, data);
+      console.log(`[TaskService] 写入完成: ${savePath} (${data.length} bytes)`);
 
       Notification.success({
         title: "结果已保存",
-        content: `文件：${fileName} 已保存到 ${savePath}`,
+        content: `文件：${zipFileName} 已保存到 ${savePath}`,
       });
 
       return savePath;
     } catch (error) {
-      // 如果插件不可用（尚未安装），回退到控制台日志
       console.warn(
-        "Tauri 对话框插件不可用，无法交互式保存。",
+        "[TaskService] Tauri 对话框插件不可用，无法交互式保存。",
         "数据大小:",
         data.length,
         "bytes",

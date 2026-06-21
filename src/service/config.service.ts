@@ -28,6 +28,13 @@ export type Config = {
      * 缓存目录
      */
     cacheDir?: string
+
+    /**
+     * 默认下载目录
+     * 配置后，任务完成时解析结果 ZIP 将自动保存到该目录
+     * 未配置时，需在任务列表页手动点击下载
+     */
+    downloadDir?: string
 }
 
 export class ConfigService {

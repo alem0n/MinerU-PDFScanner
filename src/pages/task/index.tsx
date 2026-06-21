@@ -1,11 +1,12 @@
-import { List, Avatar, ButtonGroup, Button } from "@douyinfe/semi-ui";
+import { List, Avatar, ButtonGroup, Button, Toast } from "@douyinfe/semi-ui";
 import { Tag } from "@douyinfe/semi-ui";
 import { Typography } from "@douyinfe/semi-ui";
 import { useMatch, useNavigate } from "react-router-dom";
 import { taskRepository } from "@/service/task.repository";
 import { useRequest } from "ahooks";
 import { taskService } from "@/service/task.service";
-import { TaskStatus } from "@/service/task.model";
+import { TaskStatus, type Task } from "@/service/task.model";
+import { useState, useCallback } from "react";
 
 const StatusMap: Record<string, React.ReactNode> = {
   [TaskStatus.Pending]: (
@@ -72,6 +73,31 @@ export function Component() {
   // 当查看 pending/processing 任务时，启用轮询刷新以获取实时队列位置
   const needsPolling = status === TaskStatus.Pending || status === TaskStatus.Processing;
 
+  /**
+   * 当前正在下载的任务 ID（用于按钮 loading 状态展示）
+   */
+  const [downloadingTaskId, setDownloadingTaskId] = useState<string | null>(null);
+
+  /**
+   * 手动下载任务结果 ZIP。
+   * 未配置 downloadDir 时会弹出系统保存对话框。
+   */
+  const handleDownload = useCallback(async (task: Task) => {
+    setDownloadingTaskId(task.task_id);
+    try {
+      console.log(`[TaskList] 开始下载任务 ${task.task_id} (${task.file_name})`);
+      const path = await taskService.downloadAndSave(task);
+      if (path) {
+        Toast.success({
+          content: `结果已保存到 ${path}`,
+          duration: 3,
+        });
+      }
+    } finally {
+      setDownloadingTaskId(null);
+    }
+  }, []);
+
   const tasksReq = useRequest(
     () => taskRepository.list("status in ($1)", [status]),
     {
@@ -112,6 +138,14 @@ export function Component() {
                 </Button>
                 {item.status === TaskStatus.Processing && <Button>取消</Button>}
                 {item.status === TaskStatus.Failed && <Button>重试</Button>}
+                {item.status === TaskStatus.Completed && (
+                  <Button
+                    onClick={() => handleDownload(item)}
+                    loading={downloadingTaskId === item.task_id}
+                  >
+                    下载
+                  </Button>
+                )}
                 {item.status === TaskStatus.Completed && (
                   <Button onClick={() => taskService.packageTask(item.task_id)}>
                     打包
