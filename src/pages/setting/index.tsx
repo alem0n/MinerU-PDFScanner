@@ -4,6 +4,7 @@ import { Form, Button, Card, Toast } from "@douyinfe/semi-ui";
 import { useRequest } from "ahooks";
 import { useLoaderData } from "react-router-dom";
 import { useRef, useCallback } from "react";
+import { UpdateChecker } from "@/lib/updater";
 
 export function Component() {
   const data = useLoaderData() as Config;
@@ -70,6 +71,12 @@ export function Component() {
             保存配置
           </Button>
         </Form>
+      </Card>
+      <Card title="软件更新" className="w-full mt-4">
+        <div className="flex items-center justify-between">
+          <span className="text-gray-600">检查并安装最新版本</span>
+          <UpdateChecker autoCheck={false} showButton />
+        </div>
       </Card>
     </Page>
   );
