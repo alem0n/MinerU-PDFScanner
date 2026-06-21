@@ -543,7 +543,7 @@ export class TaskService {
     }
 
     const contentList = await fetch(
-      `${config.fileUrl}${task.content_list_json}`,
+      `${config.baseUrl}${task.content_list_json}`,
     )
       .then((r) => r.json())
       .then((r) => r as Array<{ page_idx: number }>);
@@ -551,7 +551,7 @@ export class TaskService {
     const pages = contentList?.[contentList.length - 1]?.page_idx ?? 0;
     const markdownLinks = new Array(pages)
       .fill(1)
-      .map((_, index) => `${config.fileUrl}${task.images}/${index}.md`);
+      .map((_, index) => `${config.baseUrl}${task.images}/${index}.md`);
     const markdowns = await Promise.all(
       markdownLinks.map((link) => loadMarkdown(link, task.images)),
     );
@@ -573,7 +573,7 @@ export class TaskService {
    */
   async packageTask(task_id: string): Promise<void> {
     const config = await configService.get();
-    open(`${config.uploadUrl}/pack/${task_id}`);
+    open(`${config.baseUrl}/pack/${task_id}`);
   }
 }
 

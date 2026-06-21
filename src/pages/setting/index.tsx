@@ -47,13 +47,7 @@ export function Component() {
           initValues={data}
           layout="vertical"
         >
-          <Form.Input field="uploadUrl" label="识别接口" trigger="blur" />
-          <Form.Input
-            field="queryTaskUrl"
-            label="任务查询接口"
-            trigger="blur"
-          />
-          <Form.Input field="fileUrl" label="资源文件接口" trigger="blur" />
+          <Form.Input field="baseUrl" label="后端服务地址" trigger="blur" placeholder="http://127.0.0.1:8080" />
           <Form.Input field="cacheDir" label="缓存目录" trigger="blur" />
           <Form.Input
             field="downloadDir"
