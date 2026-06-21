@@ -1,4 +1,4 @@
-import { List, Avatar, ButtonGroup, Button, Toast } from "@douyinfe/semi-ui";
+import { List, Avatar, ButtonGroup, Button, Toast, Modal, Pagination } from "@douyinfe/semi-ui";
 import { Tag } from "@douyinfe/semi-ui";
 import { Typography } from "@douyinfe/semi-ui";
 import { useMatch, useNavigate } from "react-router-dom";
@@ -98,14 +98,65 @@ export function Component() {
     }
   }, []);
 
+  // ============ 分页状态 ============
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const tasksReq = useRequest(
-    () => taskRepository.list("status in ($1)", [status]),
+    () => taskRepository.list("status in ($1)", [status], pageSize, (currentPage - 1) * pageSize),
     {
       cacheKey: "tasks_" + status,
-      refreshDeps: [status],
+      refreshDeps: [status, currentPage, pageSize],
       pollingInterval: needsPolling ? 3000 : 0,
     }
   );
+
+  const totalReq = useRequest(
+    () => taskRepository.count("status in ($1)", [status]),
+    {
+      cacheKey: "tasks_count_" + status,
+      refreshDeps: [status],
+    }
+  );
+
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
+
+  const handlePageSizeChange = useCallback((newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // 切换每页条数时回到第一页
+  }, []);
+
+  /**
+   * 当前正在删除的任务 ID（用于按钮 loading 状态展示）
+   */
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+
+  /**
+   * 删除任务，弹出确认对话框后从数据库中移除并刷新列表。
+   */
+  const handleDelete = useCallback(async (task: Task) => {
+    Modal.confirm({
+      title: "确认删除",
+      content: `确定要删除任务「${task.file_name}」吗？此操作不可恢复。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { type: "danger" },
+      onOk: async () => {
+        setDeletingTaskId(task.task_id);
+        try {
+          await taskService.deleteTask(task.task_id);
+          Toast.success({ content: "任务已删除", duration: 2 });
+          tasksReq.refresh();
+          totalReq.refresh();
+        } finally {
+          setDeletingTaskId(null);
+        }
+      },
+    });
+  }, [tasksReq]);
+
   const navigate = useNavigate();
   return (
     <div>
@@ -147,16 +198,30 @@ export function Component() {
                   </Button>
                 )}
                 {item.status === TaskStatus.Completed && (
-                  <Button onClick={() => taskService.packageTask(item.task_id)}>
-                    打包
+                  <Button
+                    onClick={() => handleDelete(item)}
+                    loading={deletingTaskId === item.task_id}
+                  >
+                    删除
                   </Button>
                 )}
-                {item.status === TaskStatus.Completed && <Button>删除</Button>}
               </ButtonGroup>
             }
           />
         )}
       />
+      <div className="flex justify-center my-4">
+        <Pagination
+          total={totalReq.data ?? 0}
+          currentPage={currentPage}
+          pageSize={pageSize}
+          pageSizeOpts={[5, 10, 15, 20]}
+          showSizeChanger
+          showTotal
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+        />
+      </div>
     </div>
   );
 }

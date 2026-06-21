@@ -58,19 +58,28 @@ export class TaskRepository {
     
   }
   /**
-   * 查询任务列表，支持 WHERE 条件过滤，结果按 created_at ASC 排序。
-   * @param where 条件 比如   "status = '$1' AND file_name LIKE '%.pdf'"
-   * @param bindValues 绑定值 
+   * 查询任务列表，支持 WHERE 条件过滤，分页和排序。
+   * 结果按 created_at DESC 排序（最新的在前）。
+   * @param where SQL WHERE 条件，如 "status = '$1'"
+   * @param bindValues 绑定值
+   * @param limit 每页条数（可选，不传则返回全部）
+   * @param offset 偏移量（可选）
    * @returns 
    */
-  async list(where?:string,bindValues?: unknown[]): Promise<Task[]> {
+  async list(where?: string, bindValues?: unknown[], limit?: number, offset?: number): Promise<Task[]> {
     let sql = "SELECT * FROM tasks";
-    if(where){
+    if (where) {
       sql += " WHERE " + where;
     }
-    sql += " ORDER BY created_at ASC";
+    sql += " ORDER BY created_at DESC";
+    if (limit !== undefined) {
+      sql += ` LIMIT ${limit}`;
+    }
+    if (offset !== undefined) {
+      sql += ` OFFSET ${offset}`;
+    }
     console.log(`[TaskRepository] list() SQL: ${sql}`, bindValues ?? "");
-    const result = await this.db.select<Task[]>(sql,bindValues);
+    const result = await this.db.select<Task[]>(sql, bindValues);
     return result;
   }
 

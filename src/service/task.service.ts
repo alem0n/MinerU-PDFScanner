@@ -601,6 +601,15 @@ export class TaskService {
     const config = await configService.get();
     open(`${config.baseUrl}/pack/${task_id}`);
   }
+
+  /**
+   * 从数据库中删除指定任务。
+   * 删除后会清除 ahooks 缓存，使列表自动刷新。
+   */
+  async deleteTask(task_id: string): Promise<void> {
+    await taskRepository.delete(task_id);
+    clearCache("tasks_");
+  }
 }
 
 /** TaskService 全局单例 */
