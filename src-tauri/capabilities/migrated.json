@@ -29,6 +29,7 @@
     "sql:allow-close",
     "sql:allow-select",
     "fs:default",
-    "upload:default"
+    "upload:default",
+    "dialog:default"
   ]
 }

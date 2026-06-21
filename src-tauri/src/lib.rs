@@ -20,6 +20,7 @@ pub fn run() {
                 .add_migrations("sqlite:database.db", migrations)
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())

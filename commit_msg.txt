@@ -1,0 +1,52 @@
+feat(task-service): Task C - TaskService refactoring with batch submission, serial polling, and ZIP download
+
+### Implementation Summary
+
+**C.1 - Interface Design**
+- New types: BatchFileItem, ContentListItem, MarkdownItem, LoadTaskResult
+- Clear method signatures with JSDoc documentation
+
+**C.2 - Batch Submission (submitBatch)**
+- Per-file submission via apiClient.submitTask() with individual Task records
+- Error isolation: one file failure doesn't block the batch
+- Failed submissions create 'failed' Task records with error notifications
+
+**C.3 - Batch Serial Polling Engine**
+- Batch-level atomic enqueue via AsyncQueryQueue (FIFO serial queue)
+- Tasks within a batch polled strictly in order (100ms gap, 1s interval)
+- Uses apiClient.getTaskStatus() instead of old fetch-based polling
+- 404 errors gracefully degrade with user notification
+
+**C.4 - Terminal State Handling & Notifications**
+- handleTaskCompleted: DB update + cache clear + Notification.success + auto-download
+- handleTaskFailed: DB update + cache clear + Notification.error
+- Notifications triggered in batch submission order
+
+**C.5 - ZIP Download & Local Save**
+- downloadAndSave via apiClient.downloadTaskResult()
+- Tauri save dialog (@tauri-apps/plugin-dialog) for folder selection
+- File writing via @tauri-apps/plugin-fs
+- Rust-side: tauri-plugin-dialog registered in lib.rs + capabilities updated
+
+**C.6 - loadTasks Adaptation**
+- App startup recovery loads all pending/processing tasks
+- Tasks sorted by created_at ASC for consistent resume order
+- 404 on resume handled gracefully (mark as failed with message)
+
+**C.7 - Caller Adaptation**
+- createTask/index.tsx: Upload component uses beforeUpload -> submitBatch
+- All old import/export references preserved for backward compatibility
+
+### Files Changed
+- src/service/task.service.ts: 182 -> 487 lines
+- src/pages/createTask/index.tsx: updated to new submission flow
+- src-tauri/src/lib.rs: registered tauri-plugin-dialog
+- src-tauri/Cargo.toml: added tauri-plugin-dialog dependency
+- src-tauri/capabilities/migrated.json: added dialog:default permission
+- package.json: added @tauri-apps/plugin-dialog dependency
+
+### Verification
+- tsc --noEmit: zero errors
+- cargo check: Finished dev profile, zero errors
+
+Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
