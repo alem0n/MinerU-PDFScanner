@@ -3,7 +3,7 @@ name = "mineru-pdf-scanner"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "mineru_pdf_scanner_lib"

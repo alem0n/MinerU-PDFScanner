@@ -135,3 +135,21 @@ export enum TaskStatus {
     Completed = "completed",
     Failed = "failed",
 }
+
+/**
+ * 文件选择项
+ *
+ * 支持两种模式：
+ * - Tauri 桌面端：通过原生对话框获取文件路径（path），提交时从磁盘读取
+ * - 浏览器开发模式：通过 HTML input 获取 File 对象（file），提交时直接上传
+ */
+export interface FileItem {
+    /** 文件名（含扩展名） */
+    name: string;
+    /** 文件大小（字节） */
+    size: number;
+    /** 文件系统路径（Tauri 模式，仅在桌面端有值） */
+    path?: string;
+    /** 浏览器 File 对象（浏览器开发模式，仅在 dev 模式有值） */
+    file?: File;
+}

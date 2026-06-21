@@ -1,6 +1,6 @@
 import AsyncQueryQueue from "@/lib/QueryQueue";
 import { apiClient, ApiError } from "./api.client";
-import type { Task, ParseTaskParams } from "./task.model";
+import type { Task, ParseTaskParams, FileItem } from "./task.model";
 import { TaskStatus } from "./task.model";
 import { taskRepository, TaskRepository } from "./task.repository";
 import { Notification } from "@douyinfe/semi-ui";
@@ -132,6 +132,29 @@ export class TaskService {
   // ========================================================
 
   /**
+   * 将 FileItem 解析为浏览器 File 对象。
+   *
+   * - Tauri 桌面端（有 path）：从磁盘读取文件内容，构造 File 对象
+   * - 浏览器开发模式（有 file）：直接返回原生 File 对象
+   *
+   * 仅在提交时调用，避免在文件选择阶段加载文件内容。
+   */
+  private async resolveFile(fileItem: FileItem): Promise<File> {
+    if (fileItem.path) {
+      // Tauri 模式：从磁盘读取
+      const { readFile } = await import("@tauri-apps/plugin-fs");
+      const data = await readFile(fileItem.path);
+      const blob = new Blob([data]);
+      return new File([blob], fileItem.name, { lastModified: Date.now() });
+    }
+    // 浏览器模式：直接使用已存在的 File 对象
+    if (fileItem.file) {
+      return fileItem.file;
+    }
+    throw new Error(`无法解析文件: ${fileItem.name}，缺少文件路径或 File 对象`);
+  }
+
+  /**
    * 批量提交文件解析任务。
    *
    * 对每个文件独立调用 POST /tasks，创建对应的 Task 记录，
@@ -142,7 +165,7 @@ export class TaskService {
    * @returns      已创建的 Task 列表（按提交顺序）
    */
   async submitBatch(
-    files: File[],
+    files: FileItem[],
     params: ParseTaskParams = {},
   ): Promise<Task[]> {
     if (files.length === 0) {
@@ -151,9 +174,12 @@ export class TaskService {
 
     const createdTasks: Task[] = [];
 
-    for (const file of files) {
+    for (const fileItem of files) {
       try {
-        // 通过 ApiClient 提交单文件到后端
+        // Tauri 模式：从磁盘读取文件；浏览器模式：使用已有的 File 对象
+        const file = await this.resolveFile(fileItem);
+
+        // 通过 ApiClient 提交文件到后端
         const response = await apiClient.submitTask([file], params);
 
         // 创建本地 Task 记录
@@ -180,13 +206,13 @@ export class TaskService {
 
         Notification.error({
           title: "任务提交失败",
-          content: `文件：${file.name}，${errorMsg}`,
+          content: `文件：${fileItem.name}，${errorMsg}`,
         });
 
         // 创建失败记录以便用户知晓
         const failedTask: Task = {
           task_id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          file_name: file.name,
+          file_name: fileItem.name,
           pdf_url: "",
           md_url: "",
           images: "",

@@ -28,5 +28,14 @@ export default defineConfig(async () => ({
       // 3. tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    // 4. Vite proxy: 开发模式下将 /proxy-api 请求转发到后端，
+    //    避免浏览器跨域问题（生产 Tauri webview 无 CORS 限制）
+    proxy: {
+      "/proxy-api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy-api/, ""),
+      },
+    },
   },
 }));
