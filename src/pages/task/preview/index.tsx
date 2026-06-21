@@ -4,6 +4,7 @@ import { PDFViewer } from "./PDFViewer";
 import { PreviewStateContainer } from "./state";
 import { getApiUrl } from "@/lib/config";
 import { PDFViewerSkeleton } from "./PDFViewerSkeleton";
+import { TaskStatus } from "@/service/task.model";
 import { LoadTaskResult } from "@/service/task.service";
 
 // 加载数据，显示PDF， markdown的情况
@@ -19,8 +20,8 @@ export function Component() {
             <PDFViewer pdf={getApiUrl(task.pdf_url)} />
           </div>
           <div className="flex-1 w-1">
-            {task.status == "done" && <Markdown markdowns={markdowns} />}
-            {(task.status == "pending" || task.status == "processing") && (
+            {task.status === TaskStatus.Completed && <Markdown markdowns={markdowns} />}
+            {(task.status === TaskStatus.Pending || task.status === TaskStatus.Processing) && (
               <PDFViewerSkeleton />
             )}
           </div>

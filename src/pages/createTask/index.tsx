@@ -16,7 +16,6 @@
 
 import { useState, useMemo, useCallback } from "react";
 import {
-  Upload,
   Typography,
   Card,
   Select,
@@ -31,6 +30,7 @@ import {
 
 import { Page } from "@/components/Page";
 import { useNavigate } from "react-router-dom";
+import { TaskStatus } from "@/service/task.model";
 import { taskService } from "@/service/task.service";
 import { healthGuard, MAX_RETRY_COUNT } from "@/service/health-guard.service";
 import type {
@@ -38,6 +38,7 @@ import type {
   BackendOption,
   EffortOption,
   LangOption,
+  FileItem,
 } from "@/service/task.model";
 
 const { Text, Title } = Typography;
@@ -103,9 +104,6 @@ const LANG_OPTIONS: { value: LangOption; label: string }[] = [
   { value: "devanagari", label: "devanagari — 印地文、马拉地文、尼泊尔文、比哈尔文、迈蒂利文等" },
 ];
 
-/** 上传文件接受的 MIME / 扩展名 */
-const ACCEPT_STR = ".pdf,.jpg,.jpeg,.png";
-
 /** 滑块最大值（达到该值表示"无限制"） */
 const MAX_PAGES_LIMIT = 200;
 
@@ -156,7 +154,7 @@ export function Component() {
 
   // ---- 状态 ----
   const [params, setParams] = useState<ParseTaskParams>({ ...DEFAULT_PARAMS });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [healthCheckFailed, setHealthCheckFailed] = useState(false);
@@ -250,20 +248,55 @@ export function Component() {
 
   // ---- 事件处理 ----
 
-  /** 上传文件选取（beforeUpload 拦截，不自动提交） */
-  const handleBeforeUpload = useCallback(
-    async (file: any): Promise<boolean> => {
-      // 兼容不同 Semi UI 版本的文件对象结构（file / file.file / file.originFile）
-      const rawFile = file?.file ?? file?.originFile ?? file;
-      const fileName: string = rawFile?.name ?? rawFile?.fileName ?? "未知文件";
-      const fileSize: number = rawFile?.size ?? 0;
-      console.log(`[CreateTask] 选择文件: "${fileName}", size=${fileSize}`);
-      setSelectedFile(rawFile);
-      Toast.info(`已选择文件: ${fileName}`);
-      return false; // 阻止默认 HTTP 上传
-    },
-    [],
-  );
+  /** 检测是否在 Tauri 桌面端运行 */
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  /** 选择文件（Tauri 模式：通过原生对话框只取路径；浏览器模式：通过 Upload 组件） */
+  const handleSelectFile = useCallback(async () => {
+    if (isTauri) {
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          multiple: false,
+          filters: [
+            {
+              name: "文档/图片",
+              extensions: ["pdf", "jpg", "jpeg", "png"],
+            },
+          ],
+        });
+        if (selected && typeof selected === "string") {
+          // 从路径中提取文件名
+          const parts = selected.replace(/\\/g, "/").split("/");
+          const fileName = parts[parts.length - 1];
+          setSelectedFile({ name: fileName, size: 0, path: selected });
+          Toast.info(`已选择文件: ${fileName}`);
+        }
+      } catch (err) {
+        console.error("[CreateTask] Tauri 文件对话框错误:", err);
+        Toast.error("文件选择失败");
+      }
+    } else {
+      // 浏览器开发模式：通过隐藏的 input 选取
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".pdf,.jpg,.jpeg,.png";
+      input.onchange = (e: Event) => {
+        const target = e.target as HTMLInputElement;
+        const file = target.files?.[0];
+        if (file) {
+          setSelectedFile({ name: file.name, size: file.size, file });
+          Toast.info(`已选择文件: ${file.name}`);
+        }
+      };
+      input.click();
+    }
+  }, [isTauri]);
+
+  /** 清除已选文件 */
+  const handleClearFile = useCallback(() => {
+    setSelectedFile(null);
+  }, []);
 
   /** 最大转换页数滑块变化 */
   const handleMaxPagesChange = useCallback(
@@ -294,7 +327,7 @@ export function Component() {
     }
 
     console.log(
-      `[CreateTask] 开始提交流程: file="${selectedFile.name}", size=${selectedFile.size}, params=`,
+      `[CreateTask] 开始提交流程: name="${selectedFile.name}", path=${selectedFile.path ?? "(浏览器)"}, params=`,
       params,
     );
 
@@ -336,7 +369,7 @@ export function Component() {
       const tasks = await taskService.submitBatch([selectedFile], params);
       const task = tasks[0];
 
-      if (task && task.status !== "failed") {
+      if (task && task.status !== TaskStatus.Failed) {
         console.log(
           `[CreateTask] 任务创建成功: task_id="${task.task_id}", file="${task.file_name}"`,
         );
@@ -470,26 +503,52 @@ export function Component() {
           {/* -------------------------------------------------- */}
           <Card title="上传区" className="w-full min-h-[600px]">
             <div className="flex flex-col gap-4 h-full">
-              {/* 大号拖拽上传区域（3倍高度） */}
+              {/* 大号文件选择区域 */}
               <div className="flex-1 flex flex-col items-center justify-center">
-                <Upload
-                  beforeUpload={handleBeforeUpload as any}
-                  showUploadList={false}
-                  draggable={true}
-                  accept={ACCEPT_STR}
-                  disabled={submitting}
-                  className="w-full"
-                  dragMainText="点击或拖拽文件到此处"
-                  dragSubText="支持 PDF、JPG、PNG 等格式"
-                />
+                <div
+                  onClick={submitting ? undefined : handleSelectFile}
+                  className={`
+                    w-full h-48 flex flex-col items-center justify-center
+                    border-2 border-dashed rounded-lg cursor-pointer
+                    transition-colors duration-200
+                    ${selectedFile
+                      ? "border-green-400 bg-green-50 dark:bg-green-900/20"
+                      : "border-gray-300 hover:border-blue-400 hover:bg-blue-50 dark:border-gray-600 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
+                    }
+                    ${submitting ? "opacity-50 cursor-not-allowed" : ""}
+                  `}
+                >
+                  {selectedFile ? (
+                    <div className="text-center px-4">
+                      <svg className="w-10 h-10 mx-auto mb-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-sm font-medium text-green-600 dark:text-green-400 truncate max-w-[200px]">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">点击重新选择文件</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-300">点击选择文件</p>
+                      <p className="text-xs text-gray-400 mt-1">支持 PDF、JPG、PNG 等格式</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* 已选文件提示 */}
+              {/* 已选文件提示 + 取消选择按钮 */}
               {selectedFile && !submitting && (
-                <div className="text-center">
+                <div className="flex items-center justify-center gap-2">
                   <Text size="small" type="success">
-                    已选择: {(selectedFile as any)?.name ?? (selectedFile as any)?.fileName ?? "未知文件"}
+                    已选择: {selectedFile.name}
                   </Text>
+                  <Button size="small" type="danger" theme="borderless" onClick={handleClearFile}>
+                    取消
+                  </Button>
                 </div>
               )}
 

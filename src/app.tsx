@@ -31,7 +31,7 @@ const router = createBrowserRouter([
         lazy: () => import("./pages/task"),
       },
       {
-        path: "/task/done",
+        path: "/task/completed",
 
         lazy: () => import("./pages/task"),
       },
@@ -40,7 +40,7 @@ const router = createBrowserRouter([
         lazy: () => import("./pages/task"),
       },
       {
-        path: "/task/error",
+        path: "/task/failed",
         lazy: () => import("./pages/task"),
       },
       {

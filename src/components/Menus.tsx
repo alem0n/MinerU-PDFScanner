@@ -32,8 +32,8 @@ export function Menus() {
           items: [
             { itemKey: "/task/pending", text: "未启动" },
             { itemKey: "/task/processing", text: "进行中" },
-            { itemKey: "/task/done", text: "已完成" },
-            { itemKey: "/task/error", text: "失败" },
+            { itemKey: "/task/completed", text: "已完成" },
+            { itemKey: "/task/failed", text: "失败" },
           ],
         },
         {
