@@ -7,7 +7,7 @@
     "devUrl": "http://localhost:1420"
   },
   "bundle": {
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "active": true,
     "targets": "all",
     "icon": [
