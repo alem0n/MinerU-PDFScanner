@@ -38,6 +38,8 @@ function normalizeImgPath(path: string): string {
   if (/^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('file://')) return path
   // HTTP(S) URL 原样透传，由 LazyImage 中的 fetch + blob URL 逻辑处理后端拉取
   if (/^https?:\/\//i.test(path)) return path
+  // Unix 绝对路径（/home/...、/usr/...、/Users/... 等）原样透传
+  if (/^\/(?:home|usr|var|tmp|opt|Users|etc|mnt|media|root)\//.test(path)) return path
   const clean = path.startsWith('/') ? path.slice(1) : path
   if (!clean || clean === '/') return path
   if (clean.includes('/') || clean.includes('\\')) return clean
