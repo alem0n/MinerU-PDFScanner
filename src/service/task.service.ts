@@ -680,7 +680,6 @@ export class TaskService {
       }
     }
 
-    // 新数据模型下，预览页面数据通过 url / full_md_link / full_zip_url 获取
     return {
       task,
       contentList: [],

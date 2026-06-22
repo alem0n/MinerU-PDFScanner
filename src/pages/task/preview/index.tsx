@@ -10,15 +10,10 @@ export function Component() {
   const navigate = useNavigate();
 
   if (!result) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        缺少任务数据
-      </div>
-    );
+    return <div className="flex items-center justify-center h-full text-gray-400">缺少任务数据</div>;
   }
 
   const { task, blockData, mergeConnections } = result;
-
   const taskData = task as unknown as TaskData;
   const pdfUrl = task.url ? getApiUrl(task.url) : undefined;
 
@@ -30,20 +25,10 @@ export function Component() {
       loading={false}
       error={null}
       onBack={() => navigate(-1)}
-      onRetry={() => {
-        window.location.reload();
-      }}
-      onFavorite={() => {
-        console.log("Favorite task:", task.task_id);
-      }}
-      onOpenFolder={(_folderName) => {
-        if (task.unzip_file_output_path) {
-          openFolder(task.unzip_file_output_path);
-        }
-      }}
-      onExport={(format: ExportFormat) => {
-        console.log("Export:", format, "task:", task.task_id);
-      }}
+      onRetry={() => window.location.reload()}
+      onFavorite={() => console.log("Favorite task:", task.task_id)}
+      onOpenFolder={() => { if (task.unzip_file_output_path) openFolder(task.unzip_file_output_path) }}
+      onExport={(format: ExportFormat) => console.log("Export:", format, "task:", task.task_id)}
       pdfUrl={pdfUrl}
     />
   );

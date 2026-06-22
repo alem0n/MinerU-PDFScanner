@@ -8,6 +8,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { readTextFile, exists } from '@tauri-apps/plugin-fs'
+import { join } from '@tauri-apps/api/path'
 import { createLogger } from '@/utils/logger'
 import type { Components } from 'react-markdown'
 
@@ -49,13 +51,7 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      try {
-        await navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      } catch {
-        // ignore
-      }
+      // ignore
     }
   }, [text])
   return (
@@ -131,11 +127,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ outputPath, con
         setContent('')
         return
       }
-      logger.info(`Loading markdown from: "${outputPath}/full.md"`)
+      logger.info(`Loading markdown from outputPath`)
       setLoading(true)
       try {
-        const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
-        const { join } = await import('@tauri-apps/api/path')
         const mdPath = await join(outputPath, 'full.md')
         const fileExists = await exists(mdPath)
         if (fileExists) {
