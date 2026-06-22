@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { ControlBar } from '@/components/preview/ControlBar'
 import { SplitPane } from '@/components/preview/SplitPane'
 import { MainMarkdownViewer } from '@/components/preview/MainMarkdownViewer'
+import { MarkdownRenderer } from '@/components/preview/MarkdownRenderer'
+import { BuildJsonViewer } from '@/components/preview/JsonViewer'
+import { ChemViewer } from '@/components/preview/ChemViewer'
 import { PdfPanel } from '@/components/preview/PdfViewer'
+import { useUIStore, type PreviewViewType } from '@/stores/uiStore'
 import type { TaskData, BlockData, MergeConnection, ExportFormat } from '@/shared/types'
 import { TASK_PROCESSING_STATES } from '@/shared/types'
 import { useMarkdownTheme } from '@/hooks/useMarkdownTheme'
@@ -100,26 +104,77 @@ export function PreviewPage({
         left={<PdfPanel task={task} type={task.type || 'PDF'} blockData={blockData} showOverlay={showPdfOverlay}
           onToggleShowLayout={() => setShowPdfOverlay(!showPdfOverlay)} mergeConnections={mergeConnections}
           outputPath={task.unzip_file_output_path} pdfUrl={pdfUrl} />}
-        right={<RightPanel blockData={blockData} outputPath={task.unzip_file_output_path} theme={theme} />}
+        right={<RightPanel task={task} blockData={blockData} outputPath={task.unzip_file_output_path} theme={theme} />}
         defaultLeftWidth={50}
       />
     </div>
   )
 }
 
-function RightPanel({ blockData, outputPath, theme }: {
+// 迁移方案 A1 — RightPanel：Markdown 面板 Tab 切换（md/json/chem）+ 块视图/纯 Markdown 切换
+// 对应迁移方案 6.3 验收项："Markdown 面板 Tab 切换（md/json/chem）正常"
+function RightPanel({ task, blockData, outputPath, theme }: {
+  task: TaskData
   blockData: BlockData[][] | null
   outputPath: string
   theme: import('@/hooks/useMarkdownTheme').MarkdownTheme
 }) {
-  const resolvedPath = outputPath || ''
+  // 迁移方案 B1 — 从 uiStore 读取 Tab 视图类型与 showLayout 开关
+  const viewType = useUIStore((s) => s.viewType)
+  const setViewType = useUIStore((s) => s.setViewType)
+  const showLayout = useUIStore((s) => s.showLayout)
+  const setShowLayout = useUIStore((s) => s.setShowLayout)
+
+  const resolvedPath = outputPath || task.unzip_file_output_path || ''
+
+  // 迁移方案 A1 — 三个 Tab：Markdown / JSON / 化学
+  const tabs: { key: PreviewViewType; label: string }[] = [
+    { key: 'md', label: 'Markdown' },
+    { key: 'json', label: 'JSON' },
+    { key: 'chem', label: '化学' },
+  ]
+
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">
-        {blockData && blockData.length > 0 ? (
-          <MainMarkdownViewer blockData={blockData} theme={theme} imageBasePath={resolvedPath} />
-        ) : (
-          <div className="flex items-center justify-center h-full text-sm text-gray-400">暂无块数据</div>
+      <div className="tabs-bar">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setViewType(tab.key)}
+            className={`tab-item${viewType === tab.key ? ' active' : ''}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+        {/* 迁移方案 A1 — showLayout 切换：仅在 md Tab 下显示，切换块视图(MainMarkdownViewer)与纯 Markdown(MarkdownRenderer) */}
+        {viewType === 'md' && (
+          <button
+            onClick={() => setShowLayout(!showLayout)}
+            className="btn btn-sm btn-ghost ml-2"
+            title={showLayout ? '切换为纯 Markdown' : '切换为块视图'}
+          >
+            {showLayout ? '纯 Markdown' : '块视图'}
+          </button>
+        )}
+        <div className="flex-1" />
+      </div>
+      <div className="flex-1 overflow-auto p-4">
+        {/* 迁移方案 A1 — md Tab：showLayout=true 显示块视图，false 显示纯 Markdown 渲染 */}
+        {viewType === 'md' && resolvedPath && (
+          showLayout
+            ? <MainMarkdownViewer blockData={blockData} theme={theme} imageBasePath={resolvedPath} />
+            : <MarkdownRenderer outputPath={resolvedPath} theme={theme} imageBasePath={resolvedPath} />
+        )}
+        {viewType === 'md' && !resolvedPath && (
+          <p className="text-sm text-gray-400">缺少输出路径</p>
+        )}
+        {/* 迁移方案 A10 — json Tab：展示任务原始 JSON 数据 */}
+        {viewType === 'json' && (
+          <BuildJsonViewer data={task} />
+        )}
+        {/* 迁移方案 A11 — chem Tab：展示化学数据 */}
+        {viewType === 'chem' && (
+          <ChemViewer chemData={(task as any).chem} taskId={task.task_id} />
         )}
       </div>
     </div>

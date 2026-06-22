@@ -27,15 +27,26 @@ export interface MarkdownRendererProps {
 
 export function resolveImageUrl(src: string, imageBasePath?: string): string {
   if (!src) return src
+  // 网络 URL 与 data URI 直接返回——迁移方案要求"网络URL必须能正确显示"
   if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) return src
+  // Tauri 已转换的 asset 协议直接返回
   if (src.startsWith('asset://') || src.startsWith('tauri://')) return src
+  // file:// URL — 提取本地路径后通过 Tauri convertFileSrc 转为 webview 可加载的 URL
+  // 迁移方案要求"绝对路径必须能正确显示"；源项目使用 file:// 协议，Tauri 需要转换
+  if (src.startsWith('file://')) {
+    const filePath = src.replace(/^file:\/\/(localhost\/)?\/?/i, '')
+    return convertFileSrc(decodeURIComponent(filePath))
+  }
   const normalizedSrc = src.replace(/\\/g, '/')
+  // Windows 绝对路径（C:\... 或 C:/...）
   if (/^[a-zA-Z]:[\\/]/.test(normalizedSrc)) {
     return convertFileSrc(normalizedSrc)
   }
+  // Unix 绝对路径（/...）
   if (normalizedSrc.startsWith('/')) {
     return convertFileSrc(normalizedSrc)
   }
+  // 相对路径——拼接 imageBasePath 后转换，迁移方案要求"本地相对路径必须能正确显示"
   if (imageBasePath) {
     const base = imageBasePath.replace(/\\/g, '/').replace(/\/+$/, '')
     return convertFileSrc(`${base}/${normalizedSrc}`)
@@ -106,7 +117,8 @@ export function LazyImage(props: React.ImgHTMLAttributes<HTMLImageElement> & { i
       src={resolvedSrc}
       alt={alt}
       onError={() => setError(true)}
-      style={{ maxWidth: '100%', borderRadius: 4 }}
+      /* 迁移方案要求"支持自适应容器"——maxWidth:100% 限制不超出容器，height:auto 保持宽高比 */
+      style={{ maxWidth: '100%', height: 'auto', borderRadius: 4 }}
       {...rest}
     />
   )
@@ -247,7 +259,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ outputPath, con
             {visible ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeRaw, rehypeKatex]}
+                /* 迁移方案 5.3 — rehype-raw 允许 raw HTML（表格等），rehype-katex 渲染 LaTeX 公式
+                   KaTeX 选项：strict:false 容忍非标准 LaTeX 命令；throwOnError:false 避免不支持的公式导致渲染崩溃
+                   确保"行内与块级公式必须正确转换为可读格式" */
+                rehypePlugins={[[rehypeRaw, { pass: ['raw'] }], [rehypeKatex, { strict: false, throwOnError: false }]]}
                 components={components}
               >
                 {mdContent}
