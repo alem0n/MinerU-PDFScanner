@@ -5,10 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MinerU-APP</title>
+    <style>
+      #boot-splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fff;font-family:system-ui,-apple-system,sans-serif;color:#888}
+      #boot-splash .spinner{width:32px;height:32px;border:3px solid #e0e0e0;border-top-color:#0077fa;border-radius:50%;animation:boot-spin .8s linear infinite}
+      @keyframes boot-spin{to{transform:rotate(360deg)}}
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot-splash"><div class="spinner"></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,12 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import Database from '@tauri-apps/plugin-sql';
 
-let db: Database;
+let dbPromise: Promise<Database> | null = null;
 
-export async function createDatabase() {
-    const dbPath = await invoke<string>('get_db_path');
-    db = await Database.load('sqlite:' + dbPath);
-    return db;
+export async function getDb(): Promise<Database> {
+    if (!dbPromise) {
+        const dbPath = await invoke<string>('get_db_path');
+        dbPromise = Database.load('sqlite:' + dbPath);
+    }
+    return dbPromise;
 }
-
-export { db };

@@ -1,6 +1,5 @@
-import { db } from '@/lib/db';
+import { getDb } from '@/lib/db';
 import { TaskDataEntities } from './task.model';
-import Database from '@tauri-apps/plugin-sql';
 
 /**
  * taskData 表名常量（方便后续切换表）
@@ -20,17 +19,12 @@ const ALL_COLUMNS = `
 `;
 
 export class TaskRepository {
-  private db: Database;
-
-  constructor(db: Database) {
-    this.db = db;
-  }
-
   /**
    * 创建一条新任务记录（全字段插入）
    */
   async create(task: TaskDataEntities): Promise<void> {
-    await this.db.execute(
+    const db = await getDb();
+    await db.execute(
       `INSERT INTO ${TABLE_NAME} (
         id, file_name, type, state, createdAt, full_md_link, full_zip_url,
         err_msg, err_code, jobID, task_id, thumb, url, file_url,
@@ -87,7 +81,8 @@ export class TaskRepository {
    * 更新一条任务记录（全字段覆盖，以 task_id 为条件）
    */
   async update(task: TaskDataEntities): Promise<void> {
-    await this.db.execute(
+    const db = await getDb();
+    await db.execute(
       `UPDATE ${TABLE_NAME} SET
         file_name = $1, type = $2, state = $3, createdAt = $4,
         full_md_link = $5, full_zip_url = $6,
@@ -140,7 +135,8 @@ export class TaskRepository {
    * 按 task_id 查询单条记录
    */
   async findById(taskId: string): Promise<TaskDataEntities | null> {
-    const result = await this.db.select<TaskDataEntities[]>(
+    const db = await getDb();
+    const result = await db.select<TaskDataEntities[]>(
       `SELECT ${ALL_COLUMNS} FROM ${TABLE_NAME} WHERE task_id = $1`,
       [taskId]
     );
@@ -170,7 +166,8 @@ export class TaskRepository {
       sql += ` OFFSET ${offset}`;
     }
     console.log(`[TaskRepository] list() SQL: ${sql}`, bindValues ?? "");
-    const result = await this.db.select<TaskDataEntities[]>(sql, bindValues);
+    const db = await getDb();
+    const result = await db.select<TaskDataEntities[]>(sql, bindValues);
     return result;
   }
 
@@ -182,7 +179,8 @@ export class TaskRepository {
     if (where) {
       sql += " WHERE " + where;
     }
-    const result = await this.db.select<Array<{ count: number }>>(sql, bindValues);
+    const db = await getDb();
+    const result = await db.select<Array<{ count: number }>>(sql, bindValues);
     return result && result.length > 0 ? result[0].count : 0;
   }
 
@@ -190,11 +188,12 @@ export class TaskRepository {
    * 按 task_id 删除任务
    */
   async delete(taskId: string): Promise<void> {
-    await this.db.execute(
+    const db = await getDb();
+    await db.execute(
       `DELETE FROM ${TABLE_NAME} WHERE task_id = $1`,
       [taskId]
     );
   }
 }
 
-export const taskRepository = new TaskRepository(db);
+export const taskRepository = new TaskRepository();

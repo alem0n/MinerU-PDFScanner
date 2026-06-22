@@ -1,5 +1,6 @@
 import "./global.css";
 import "./styles/preview.css";
+import { useEffect } from "react";
 import { Layout } from "./layout";
 import { Outlet } from "react-router-dom";
 
@@ -63,8 +64,10 @@ const router = createBrowserRouter([
     ],
   },
 ]);
-taskService.loadTasks()
 function App() {
+  useEffect(() => {
+    taskService.loadTasks();
+  }, []);
   return <RouterProvider router={router} />;
 }
 
