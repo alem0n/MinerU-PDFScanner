@@ -23,6 +23,8 @@
     "@tauri-apps/plugin-updater": "^2.10.0",
     "@tauri-apps/plugin-upload": "^2.4.0",
     "ahooks": "^3.9.0",
+    "baseline-browser-mapping": "^2.10.38",
+    "caniuse-lite": "^1.0.30001799",
     "pdfjs-dist": "^4.7.76",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

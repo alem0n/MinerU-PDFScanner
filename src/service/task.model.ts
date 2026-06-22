@@ -1,34 +1,86 @@
 /**
  * 任务数据模型
- * 定义 Task 实体以及所有 API 请求/响应类型
+ * 定义 TaskDataEntities 实体以及所有 API 请求/响应类型
  */
 
 /**
- * 旧版 Task 实体（数据库持久化）
- * 注：部分字段将在后续迁移中逐步废弃
+ * taskData 实体（数据库持久化）
+ * 对应数据库 taskData 表的完整字段
  */
-export interface Task {
-    /** 任务ID */
-    task_id: string;
+export interface TaskDataEntities {
+    /** 主键 UUID */
+    id: string;
     /** 文件名 */
     file_name: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    pdf_url: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    md_url: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    images: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    model_json: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    middle_json: string;
-    /** @deprecated 将在后续版本中移除，请使用新的 ZIP 结果下载流程 */
-    content_list_json: string;
-    /** 任务状态 */
-    status: string;
-    /** 任务创建时间（ISO 8601），用于排序展示 */
-    created_at: string;
+    /** 类型 */
+    type: string;
+    /** 任务状态（pending / processing / completed / failed） */
+    state: string;
+    /** 创建时间戳（整数，Date.now()） */
+    createdAt: number;
+    /** Markdown 结果链接 */
+    full_md_link: string;
+    /** ZIP 结果链接 */
+    full_zip_url: string;
+    /** 错误信息 */
+    err_msg: string;
+    /** 错误码 */
+    err_code: string;
+    /** 后端 Job ID */
+    jobID: string;
+    /** 任务 ID */
+    task_id: string;
+    /** 缩略图路径 */
+    thumb: string;
+    /** 文件 URL（对应旧 pdf_url） */
+    url: string;
+    /** 文件下载 URL */
+    file_url: string;
+    /** 数据 ID */
+    data_id: string;
+    /** 批次 ID */
+    batch_id: string;
+    /** 任务类型 */
+    taskType: string;
+    /** 本地路径 */
+    path: string;
+    /** 提取进度 */
+    extract_progress: string;
+    /** 重试次数 */
+    retry_time: number;
+    /** 解压文件路径 */
+    unzip_file_path: string;
+    /** 解压输出路径 */
+    unzip_file_output_path: string;
+    /** 原始文件路径 */
+    origin_file_path: string;
+    /** 创建日期 */
+    createDate: string;
+    /** 模型版本 */
+    model_version: string;
+    /** 封面路径（对应旧 images） */
+    cover_path: string;
+    /** 化学式数据 */
+    chem: string;
+    /** 是否化学式 */
+    is_chem: boolean;
+    /** 文件大小 */
+    file_size: number;
+    /** 排序权重 */
+    rank: number;
+    /** 是否可重试 */
+    can_retry: boolean;
+    /** 是否过期 */
+    is_expire: boolean;
 }
+
+/** 数据库内使用 Task 别名保持兼容 */
+export type Task = TaskDataEntities;
+
+/**
+ * taskDemoData 实体（与 taskData 同结构，用于演示数据）
+ */
+export interface TaskDemoDataEntities extends TaskDataEntities {}
 
 /**
  * 后端支持的语言选项

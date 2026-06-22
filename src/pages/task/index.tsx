@@ -103,7 +103,7 @@ export function Component() {
   const [pageSize, setPageSize] = useState(10);
 
   const tasksReq = useRequest(
-    () => taskRepository.list("status in ($1)", [status], pageSize, (currentPage - 1) * pageSize),
+    () => taskRepository.list("state in ($1)", [status], pageSize, (currentPage - 1) * pageSize),
     {
       cacheKey: "tasks_" + status,
       refreshDeps: [status, currentPage, pageSize],
@@ -112,7 +112,7 @@ export function Component() {
   );
 
   const totalReq = useRequest(
-    () => taskRepository.count("status in ($1)", [status]),
+    () => taskRepository.count("state in ($1)", [status]),
     {
       cacheKey: "tasks_count_" + status,
       refreshDeps: [status],
@@ -171,12 +171,12 @@ export function Component() {
               <div className="">
                 <div>{item.file_name}</div>
                 <div>
-                  {StatusMap[item.status] ?? (
+                  {StatusMap[item.state] ?? (
                     <Tag size="large" color="blue">
                       {item.status}
                     </Tag>
                   )}
-                  <QueueInfo taskId={item.task_id} status={item.status} />
+                  <QueueInfo taskId={item.task_id} status={item.state} />
                 </div>
               </div>
             }

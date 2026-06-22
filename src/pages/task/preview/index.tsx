@@ -17,7 +17,7 @@ export function Component() {
         <div className="p-2 text-center">{task.file_name}</div>
         <div className="h-1 flex-1 flex ">
           <div className="flex-1 w-1">
-            <PDFViewer pdf={getApiUrl(task.pdf_url)} />
+            <PDFViewer pdf={getApiUrl(task.url)} />
           </div>
           <div className="flex-1 w-1">
             {task.status === TaskStatus.Completed && <Markdown markdowns={markdowns} />}

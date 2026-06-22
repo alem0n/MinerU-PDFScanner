@@ -182,18 +182,40 @@ export class TaskService {
         // 通过 ApiClient 提交文件到后端
         const response = await apiClient.submitTask([file], params);
 
-        // 创建本地 Task 记录
+        // 创建本地 Task 记录（新 taskData 表完整字段）
         const task: Task = {
+          id: crypto.randomUUID(),
           task_id: response.task_id,
           file_name: file.name,
-          pdf_url: "",
-          md_url: "",
-          images: "",
-          model_json: "",
-          middle_json: "",
-          content_list_json: "",
-          status: TaskStatus.Pending,
-          created_at: new Date().toISOString(),
+          type: '',
+          state: TaskStatus.Pending,
+          createdAt: Date.now(),
+          full_md_link: '',
+          full_zip_url: '',
+          err_msg: '',
+          err_code: '',
+          jobID: '',
+          thumb: '',
+          url: '',
+          file_url: '',
+          data_id: '',
+          batch_id: '',
+          taskType: '',
+          path: '',
+          extract_progress: '',
+          retry_time: 0,
+          unzip_file_path: '',
+          unzip_file_output_path: '',
+          origin_file_path: '',
+          createDate: '',
+          model_version: 'v1',
+          cover_path: '',
+          chem: '',
+          is_chem: false,
+          file_size: 0,
+          rank: 0,
+          can_retry: false,
+          is_expire: false,
         };
 
         await this.taskRepository.create(task);
@@ -211,16 +233,38 @@ export class TaskService {
 
         // 创建失败记录以便用户知晓
         const failedTask: Task = {
+          id: crypto.randomUUID(),
           task_id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           file_name: fileItem.name,
-          pdf_url: "",
-          md_url: "",
-          images: "",
-          model_json: "",
-          middle_json: "",
-          content_list_json: "",
-          status: TaskStatus.Failed,
-          created_at: new Date().toISOString(),
+          type: '',
+          state: TaskStatus.Failed,
+          createdAt: Date.now(),
+          full_md_link: '',
+          full_zip_url: '',
+          err_msg: '',
+          err_code: '',
+          jobID: '',
+          thumb: '',
+          url: '',
+          file_url: '',
+          data_id: '',
+          batch_id: '',
+          taskType: '',
+          path: '',
+          extract_progress: '',
+          retry_time: 0,
+          unzip_file_path: '',
+          unzip_file_output_path: '',
+          origin_file_path: '',
+          createDate: '',
+          model_version: 'v1',
+          cover_path: '',
+          chem: '',
+          is_chem: false,
+          file_size: 0,
+          rank: 0,
+          can_retry: false,
+          is_expire: false,
         };
 
         await this.taskRepository.create(failedTask);
@@ -230,7 +274,7 @@ export class TaskService {
     }
 
     // 将整个批次入队为原子任务，确保串行执行
-    const validTasks = createdTasks.filter(t => t.status === TaskStatus.Pending);
+    const validTasks = createdTasks.filter(t => t.state === TaskStatus.Pending);
     if (validTasks.length > 0) {
       this.queue.enqueue(() => this.processBatch(validTasks));
     }
@@ -295,9 +339,9 @@ export class TaskService {
         }
 
         // 仍在 pending / processing：同步中间状态到 DB
-        if (task.status !== currentStatus) {
-          clearCache("tasks_" + task.status);
-          task.status = currentStatus;
+        if (task.state !== currentStatus) {
+          clearCache("tasks_" + task.state);
+          task.state = currentStatus;
           await this.taskRepository.update(task);
         }
       } catch (error) {
@@ -331,10 +375,10 @@ export class TaskService {
    * - 未配置 downloadDir：仅通知"任务已完成"，用户可在任务列表页手动点击下载
    */
   private async handleTaskCompleted(task: Task): Promise<void> {
-    clearCache("tasks_" + task.status);
+    clearCache("tasks_" + task.state);
     clearCache("tasks_" + TaskStatus.Completed);
 
-    task.status = TaskStatus.Completed;
+    task.state = TaskStatus.Completed;
     await this.taskRepository.update(task);
 
     const config = await configService.get();
@@ -367,10 +411,10 @@ export class TaskService {
    * 处理任务失败状态：更新 DB → 清除缓存 → 通知
    */
   private async handleTaskFailed(task: Task, errorMsg: string): Promise<void> {
-    clearCache("tasks_" + task.status);
+    clearCache("tasks_" + task.state);
     clearCache("tasks_" + TaskStatus.Failed);
 
-    task.status = TaskStatus.Failed;
+    task.state = TaskStatus.Failed;
     await this.taskRepository.update(task);
 
     Notification.error({
@@ -519,7 +563,7 @@ export class TaskService {
    */
   public async loadTasks(): Promise<void> {
     const tasks = await this.taskRepository.list(
-      "status in ($1, $2)",
+      "state in ($1, $2)",
       [TaskStatus.Pending, TaskStatus.Processing],
     );
 
@@ -529,9 +573,9 @@ export class TaskService {
 
     // 将恢复的任务按批次编排（每个任务独立成批，按 created_at 排序）
     if (tasks.length > 0) {
-      // 按 created_at 升序排列保证恢复后顺序一致
+      // 按 createdAt 升序排列保证恢复后顺序一致
       const sorted = [...tasks].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        (a, b) => a.createdAt - b.createdAt,
       );
       this.queue.enqueue(() => this.processBatch(sorted));
     }
@@ -542,10 +586,8 @@ export class TaskService {
   // ========================================================
 
   /**
-   * 加载 task 对象、分页数据、markdown 内容（旧路径方式）。
-   *
-   * 注意：此方法仍使用旧的 fileUrl 路径获取内容，
-   * 新任务的预览支持将在后续任务（Task H）中实现。
+   * 加载 task 对象（预览页使用）。
+   * 旧数据已完全废弃，直接返回空预览内容。
    *
    * @param task_id 任务 ID
    */
@@ -556,40 +598,13 @@ export class TaskService {
       throw new Error("任务不存在");
     }
 
-    const config = await configService.get();
-
-    if (!task.content_list_json) {
-      // 新任务尚未有旧路径数据，返回空预览
-      return {
-        task,
-        contentList: [],
-        pageNumber: 0,
-        markdowns: [],
-      };
-    }
-
-    const contentList = await fetch(
-      `${config.baseUrl}${task.content_list_json}`,
-    )
-      .then((r) => r.json())
-      .then((r) => r as Array<{ page_idx: number }>);
-
-    const pages = contentList?.[contentList.length - 1]?.page_idx ?? 0;
-    const markdownLinks = new Array(pages)
-      .fill(1)
-      .map((_, index) => `${config.baseUrl}${task.images}/${index}.md`);
-    const markdowns = await Promise.all(
-      markdownLinks.map((link) => loadMarkdown(link, task.images)),
-    );
-
+    // 新数据模型下，预览页面数据通过 url / full_md_link / full_zip_url 获取
+    // 当前返回空预览，后续可根据需要扩展
     return {
       task,
-      contentList,
-      pageNumber: pages,
-      markdowns: markdowns.map((content, index) => ({
-        page_idx: index + 1,
-        content,
-      })),
+      contentList: [],
+      pageNumber: 0,
+      markdowns: [],
     };
   }
 
