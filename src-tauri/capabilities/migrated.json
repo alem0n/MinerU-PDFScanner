@@ -23,12 +23,15 @@
         }
       ]
     },
+    "fs:allow-write-file",
+    "fs:allow-read-file",
     "store:default",
     "sql:allow-load",
     "sql:allow-execute",
     "sql:allow-close",
     "sql:allow-select",
     "fs:default",
-    "upload:default"
+    "upload:default",
+    "dialog:default"
   ]
 }

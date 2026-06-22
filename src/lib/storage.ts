@@ -1,17 +1,18 @@
+import { load } from '@tauri-apps/plugin-store'
+import type { Store } from '@tauri-apps/plugin-store'
 import { appCacheDir, join } from '@tauri-apps/api/path'
-import { createStore, Store } from '@tauri-apps/plugin-store'
 
-async function getGlobalStore() {
-  if ('__store__' in window) {
-    return window['__store__'] as Store
+let globalStore: Store | null = null
+
+async function getGlobalStore(): Promise<Store> {
+  if (globalStore) {
+    return globalStore
   }
   const dir = await appCacheDir()
-  const store = await createStore(await join(dir, '.settings.dat'), {
-  })
-  await store.save()
-  // @ts-ignore
-  window['__store__'] = store
-  return store
+  const fullPath = await join(dir, '.settings.dat')
+  // load() creates a new store or loads the existing one
+  globalStore = await load(fullPath, { defaults: {}, autoSave: false })
+  return globalStore
 }
 
 export class SettingsStore<T = any> {
@@ -27,7 +28,8 @@ export class SettingsStore<T = any> {
   // get
   async get(): Promise<T | null> {
     const store = await this.getStore()
-    return store.get<T>(this.name)
+    const val = await store.get<T>(this.name)
+    return val !== undefined ? val : null
   }
 
   // set
@@ -41,9 +43,8 @@ export class SettingsStore<T = any> {
   async clear(): Promise<void> {
     const store = await this.getStore()
     await store.set(this.name, null)
+    await store.save()
   }
 }
 
 export { getGlobalStore }
-
- 

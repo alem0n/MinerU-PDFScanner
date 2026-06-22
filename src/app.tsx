@@ -1,4 +1,6 @@
 import "./global.css";
+import "./styles/preview.css";
+import { useEffect } from "react";
 import { Layout } from "./layout";
 import { Outlet } from "react-router-dom";
 
@@ -31,7 +33,7 @@ const router = createBrowserRouter([
         lazy: () => import("./pages/task"),
       },
       {
-        path: "/task/done",
+        path: "/task/completed",
 
         lazy: () => import("./pages/task"),
       },
@@ -40,7 +42,7 @@ const router = createBrowserRouter([
         lazy: () => import("./pages/task"),
       },
       {
-        path: "/task/error",
+        path: "/task/failed",
         lazy: () => import("./pages/task"),
       },
       {
@@ -62,8 +64,10 @@ const router = createBrowserRouter([
     ],
   },
 ]);
-taskService.loadTasks()
 function App() {
+  useEffect(() => {
+    taskService.loadTasks();
+  }, []);
   return <RouterProvider router={router} />;
 }
 
