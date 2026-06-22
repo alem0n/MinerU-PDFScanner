@@ -2,8 +2,14 @@
  * 创建任务页面
  *
  * 功能：
- * - 左侧上传区：拖拽/点击上传文件，支持 PDF/JPG/PNG 格式
- * - 右侧配置面板：解析后端选择、最大页数滑块、高级选项（条件渲染）
+ * - 左侧上传区：拖拽/点击上传文件，支持 PDF/JPG/PNG 格式，自动提取 PDF 页数
+ * - 右侧配置面板：解析后端选择、页码范围双滑块（起始页 ~ 结束页）、高级选项（条件渲染）
+ *
+ * 双滑块（Range Slider）：
+ *   滑块值 [startPage, endPage]（1-based），左手柄 = 起始页，右手柄 = 结束页
+ *   映射到后端参数（0-based）：
+ *     start_page_id = startPage - 1
+ *     end_page_id   = endPage - 1
  *
  * 配置面板渲染逻辑：
  *   1. 通用配置区：始终显示"启用表格识别"和"启用行内公式识别"
@@ -14,18 +20,18 @@
  *   3. 后端切换时，清空旧后端的专有数据，恢复新后端的缺省值，全局数据保持不变
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Typography,
   Card,
   Select,
-  Slider,
   Checkbox,
   RadioGroup,
   Radio,
   Button,
   Toast,
   Banner,
+  Input,
 } from "@douyinfe/semi-ui";
 
 import { Page } from "@/components/Page";
@@ -33,6 +39,8 @@ import { useNavigate } from "react-router-dom";
 import { TaskStatus } from "@/service/task.model";
 import { taskService } from "@/service/task.service";
 import { healthGuard, MAX_RETRY_COUNT } from "@/service/health-guard.service";
+import * as pdfjsLib from "pdfjs-dist";
+import workerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 import type {
   ParseTaskParams,
   BackendOption,
@@ -42,6 +50,9 @@ import type {
 } from "@/service/task.model";
 
 const { Text, Title } = Typography;
+
+// 初始化 pdf.js worker（与 PdfViewer 保持一致的加载方式）
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 // ========================================================
 // 常量定义
@@ -104,8 +115,8 @@ const LANG_OPTIONS: { value: LangOption; label: string }[] = [
   { value: "devanagari", label: "devanagari — 印地文、马拉地文、尼泊尔文、比哈尔文、迈蒂利文等" },
 ];
 
-/** 滑块最大值（达到该值表示"无限制"） */
-const MAX_PAGES_LIMIT = 200;
+/** 当 PDF 页数未知时，滑块的默认最大值（表示无限制） */
+const FALLBACK_MAX_PAGES = 99999;
 
 // ========================================================
 // 工具：后端专有配置的缺省值
@@ -145,6 +156,27 @@ function getBackendKeys(backend: BackendOption): (keyof ParseTaskParams)[] {
   }
 }
 
+/**
+ * 校验输入框中文本是否为合法整数且处于 [min, max] 范围内
+ */
+function validateIntInput(raw: string, min: number, max: number): { ok: true; value: number } | { ok: false; reason: string } {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return { ok: false, reason: "请输入正整数" };
+  }
+  const n = parseInt(trimmed, 10);
+  if (isNaN(n)) {
+    return { ok: false, reason: "请输入正整数" };
+  }
+  if (n < min) {
+    return { ok: false, reason: `最小值为 ${min}` };
+  }
+  if (n > max) {
+    return { ok: false, reason: `最大值为 ${max}` };
+  }
+  return { ok: true, value: n };
+}
+
 // ========================================================
 // 页面组件
 // ========================================================
@@ -152,19 +184,92 @@ function getBackendKeys(backend: BackendOption): (keyof ParseTaskParams)[] {
 export function Component() {
   const navigate = useNavigate();
 
-  // ---- 状态 ----
+  // ---- 基础状态 ----
   const [params, setParams] = useState<ParseTaskParams>({ ...DEFAULT_PARAMS });
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [healthCheckFailed, setHealthCheckFailed] = useState(false);
   const [healthCheckError, setHealthCheckError] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
   const [previewCategory, setPreviewCategory] = useState<string>("all");
+
+  // ---- 页码与分页状态 ----
+  /** PDF 实际总页数（null 表示未知，如尚未上传 PDF 或读取失败） */
+  const [totalPages, setTotalPages] = useState<number | null>(null);
+  /** PDF 页数读取中 */
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // ---- 输入框编辑状态 ----
+  /** 起始页输入框的当前文本（未确认前可任意输入） */
+  const [startInput, setStartInput] = useState("");
+  /** 结束页输入框的当前文本 */
+  const [endInput, setEndInput] = useState("");
+  /** 各输入框的错误提示（非空表示有错误） */
+  const [startError, setStartError] = useState("");
+  const [endError, setEndError] = useState("");
+  /** 是否正在编辑（用于区分用户主动编辑 vs 外部状态同步导致的 set） */
+  const [editingStart, setEditingStart] = useState(false);
+  const [editingEnd, setEditingEnd] = useState(false);
 
   // ---- 计算属性 ----
   const currentBackend = params.backend ?? "hybrid-engine";
   const isForceOcr = params.parse_method === "ocr";
+
+  /**
+   * 最大页码：PDF 总页数；当 totalPages 未知时使用 FALLBACK_MAX_PAGES
+   */
+  const maxPage = useMemo(() => {
+    return totalPages ?? FALLBACK_MAX_PAGES;
+  }, [totalPages]);
+
+  /**
+   * 从 params (后端 0-based 页码) 推导出当前滑块范围 [startPage, endPage]（1-based）
+   */
+  const sliderValue: [number, number] = useMemo(() => {
+    const defaultStart = 1;
+    const defaultEnd = maxPage;
+
+    let start: number, end: number;
+
+    if (params.start_page_id != null && params.start_page_id >= 0) {
+      start = params.start_page_id + 1; // 0-based → 1-based
+    } else {
+      start = defaultStart;
+    }
+
+    if (params.end_page_id != null && params.end_page_id < 99999) {
+      end = params.end_page_id + 1; // 0-based → 1-based
+    } else {
+      end = defaultEnd;
+    }
+
+    // 约束到有效范围
+    start = Math.max(1, Math.min(start, maxPage));
+    end = Math.max(start, Math.min(end, maxPage));
+
+    return [start, end];
+  }, [params.start_page_id, params.end_page_id, maxPage]);
+
+  /** 滑块起始值（用于展示） */
+  const sliderStart = sliderValue[0];
+  /** 滑块结束值（用于展示） */
+  const sliderEnd = sliderValue[1];
+
+  // ---- 同步输入框与滑块值（仅在非编辑状态下） ----
+  useEffect(() => {
+    if (!editingStart) {
+      setStartInput(String(sliderStart));
+      setStartError("");
+    }
+  }, [sliderStart, editingStart]);
+
+  useEffect(() => {
+    if (!editingEnd) {
+      setEndInput(String(sliderEnd));
+      setEndError("");
+    }
+  }, [sliderEnd, editingEnd]);
 
   /** 当前参数对象的 JSON 预览（过滤掉 null/undefined） */
   const paramsJson = useMemo(() => {
@@ -199,13 +304,6 @@ export function Component() {
     return JSON.stringify(filtered, null, 2);
   }, [previewCategory, paramsJson, params, currentBackend]);
 
-  /** 滑块值 → 映射 end_page_id：达到上限表示"全部页面" */
-  const maxPages = useMemo(() => {
-    return params.end_page_id != null && params.end_page_id >= MAX_PAGES_LIMIT
-      ? MAX_PAGES_LIMIT
-      : (params.end_page_id ?? MAX_PAGES_LIMIT);
-  }, [params.end_page_id]);
-
   // ---- 通用参数更新函数 ----
 
   /** 更新单个解析参数 */
@@ -220,7 +318,7 @@ export function Component() {
     });
   }
 
-  // ---- 后端切换逻辑（遵循四、状态重置逻辑） ----
+  // ---- 后端切换逻辑 ----
 
   /**
    * 解析后端切换时：
@@ -251,7 +349,56 @@ export function Component() {
   /** 检测是否在 Tauri 桌面端运行 */
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-  /** 选择文件（Tauri 模式：通过原生对话框只取路径；浏览器模式：通过 Upload 组件） */
+  /**
+   * 使用 pdfjs-dist 提取 PDF 文件的总页数
+   */
+  const extractPdfPageCount = useCallback(async (fileItem: FileItem) => {
+    // 仅 PDF 文件需要提取页数
+    if (!fileItem.name.toLowerCase().endsWith(".pdf")) {
+      setTotalPages(null);
+      return;
+    }
+
+    setPdfLoading(true);
+    try {
+      let data: ArrayBuffer;
+      if (fileItem.path) {
+        // Tauri 模式：从磁盘读取
+        const { readFile } = await import("@tauri-apps/plugin-fs");
+        const uint8 = await readFile(fileItem.path);
+        data = uint8.buffer as ArrayBuffer;
+      } else if (fileItem.file) {
+        // 浏览器模式：从 File 对象读取
+        data = await fileItem.file.arrayBuffer();
+      } else {
+        return;
+      }
+
+      // 使用模块顶层的 pdfjsLib（worker 已在导入时配置）
+      const loadingTask = pdfjsLib.getDocument({ data });
+      const doc = await loadingTask.promise;
+      const numPages = doc.numPages;
+      setTotalPages(numPages);
+
+      // 自动设置结束页码为实际总页数
+      setParams((prev) => ({
+        ...prev,
+        end_page_id: Math.max(numPages - 1, 0),
+      }));
+
+      // 同步输入框
+      setEndInput(String(numPages));
+
+      console.log(`[CreateTask] PDF 页数: ${numPages}`);
+    } catch (err) {
+      console.error("[CreateTask] PDF 页数提取失败:", err);
+      setTotalPages(null);
+    } finally {
+      setPdfLoading(false);
+    }
+  }, []);
+
+  /** 选择文件 */
   const handleSelectFile = useCallback(async () => {
     if (isTauri) {
       try {
@@ -269,8 +416,11 @@ export function Component() {
           // 从路径中提取文件名
           const parts = selected.replace(/\\/g, "/").split("/");
           const fileName = parts[parts.length - 1];
-          setSelectedFile({ name: fileName, size: 0, path: selected });
+          const fileItem: FileItem = { name: fileName, size: 0, path: selected };
+          setSelectedFile(fileItem);
           Toast.info(`已选择文件: ${fileName}`);
+          // 提取 PDF 页数
+          extractPdfPageCount(fileItem);
         }
       } catch (err) {
         console.error("[CreateTask] Tauri 文件对话框错误:", err);
@@ -285,29 +435,137 @@ export function Component() {
         const target = e.target as HTMLInputElement;
         const file = target.files?.[0];
         if (file) {
-          setSelectedFile({ name: file.name, size: file.size, file });
+          const fileItem: FileItem = { name: file.name, size: file.size, file };
+          setSelectedFile(fileItem);
           Toast.info(`已选择文件: ${file.name}`);
+          // 提取 PDF 页数
+          extractPdfPageCount(fileItem);
         }
       };
       input.click();
     }
-  }, [isTauri]);
+  }, [isTauri, extractPdfPageCount]);
 
   /** 清除已选文件 */
   const handleClearFile = useCallback(() => {
     setSelectedFile(null);
+    setTotalPages(null);
+    // 重置 params 中的页码范围到默认
+    setParams((prev) => ({
+      ...prev,
+      start_page_id: DEFAULT_PARAMS.start_page_id,
+      end_page_id: DEFAULT_PARAMS.end_page_id,
+    }));
   }, []);
 
-  /** 最大转换页数滑块变化 */
-  const handleMaxPagesChange = useCallback(
-    (v: number | number[] | undefined) => {
-      const value = typeof v === "number" ? v : MAX_PAGES_LIMIT;
-      updateParam("end_page_id", value >= MAX_PAGES_LIMIT ? 99999 : value);
-      if (params.start_page_id !== 0) {
-        updateParam("start_page_id", 0);
+  // ---- 输入框提交回调 ----
+
+  /** 提交起始页输入 */
+  const commitStartInput = useCallback(
+    (raw: string) => {
+      const result = validateIntInput(raw, 1, maxPage);
+      if (!result.ok) {
+        setStartError(result.reason);
+        // 恢复为上次合法值
+        setStartInput(String(sliderStart));
+        return;
+      }
+      const newStart = result.value;
+      // 保证 start ≤ end
+      if (newStart > sliderEnd) {
+        setStartError(`起始页不能大于结束页（${sliderEnd}）`);
+        setStartInput(String(sliderStart));
+        return;
+      }
+      setStartError("");
+      setEditingStart(false);
+
+      setParams((prev) => ({
+        ...prev,
+        start_page_id: newStart - 1,
+        end_page_id: sliderEnd - 1,
+      }));
+    },
+    [maxPage, sliderStart, sliderEnd],
+  );
+
+  const handleStartInputChange = useCallback((value: string) => {
+    // 只允许输入数字
+    const digits = value.replace(/\D/g, "");
+    setStartInput(digits);
+    setEditingStart(true);
+    setStartError("");
+  }, []);
+
+  const handleStartInputBlur = useCallback(() => {
+    commitStartInput(startInput);
+  }, [commitStartInput, startInput]);
+
+  const handleStartInputKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        commitStartInput(startInput);
+      } else if (e.key === "Escape") {
+        setStartInput(String(sliderStart));
+        setStartError("");
+        setEditingStart(false);
       }
     },
-    [params.start_page_id],
+    [commitStartInput, startInput, sliderStart],
+  );
+
+  // ---- 结束块输入框回调 ----
+
+  /** 提交结束页输入 */
+  const commitEndInput = useCallback(
+    (raw: string) => {
+      const result = validateIntInput(raw, 1, maxPage);
+      if (!result.ok) {
+        setEndError(result.reason);
+        setEndInput(String(sliderEnd));
+        return;
+      }
+      const newEnd = result.value;
+      // 保证 end ≥ start
+      if (newEnd < sliderStart) {
+        setEndError(`结束页不能小于起始页（${sliderStart}）`);
+        setEndInput(String(sliderEnd));
+        return;
+      }
+      setEndError("");
+      setEditingEnd(false);
+
+      setParams((prev) => ({
+        ...prev,
+        start_page_id: sliderStart - 1,
+        end_page_id: newEnd - 1,
+      }));
+    },
+    [maxPage, sliderStart, sliderEnd],
+  );
+
+  const handleEndInputChange = useCallback((value: string) => {
+    const digits = value.replace(/\D/g, "");
+    setEndInput(digits);
+    setEditingEnd(true);
+    setEndError("");
+  }, []);
+
+  const handleEndInputBlur = useCallback(() => {
+    commitEndInput(endInput);
+  }, [commitEndInput, endInput]);
+
+  const handleEndInputKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        commitEndInput(endInput);
+      } else if (e.key === "Escape") {
+        setEndInput(String(sliderEnd));
+        setEndError("");
+        setEditingEnd(false);
+      }
+    },
+    [commitEndInput, endInput, sliderEnd],
   );
 
   /** 强制启用 OCR 开关 → 控制 parse_method */
@@ -448,6 +706,11 @@ export function Component() {
     console.log("[CreateTask] 清除所有配置");
     setParams({ ...DEFAULT_PARAMS });
     setSelectedFile(null);
+    setTotalPages(null);
+    setStartInput("1");
+    setEndInput("1");
+    setStartError("");
+    setEndError("");
     Toast.info("已重置所有配置");
   }, []);
 
@@ -540,15 +803,35 @@ export function Component() {
                 </div>
               </div>
 
-              {/* 已选文件提示 + 取消选择按钮 */}
+              {/* 已选文件信息 + 取消选择按钮 */}
               {selectedFile && !submitting && (
-                <div className="flex items-center justify-center gap-2">
-                  <Text size="small" type="success">
-                    已选择: {selectedFile.name}
-                  </Text>
-                  <Button size="small" type="danger" theme="borderless" onClick={handleClearFile}>
-                    取消
-                  </Button>
+                <div className="flex flex-col items-center gap-1">
+                  <div className="flex items-center gap-2">
+                    <Text size="small" type="success">
+                      已选择: {selectedFile.name}
+                    </Text>
+                    <Button size="small" type="danger" theme="borderless" onClick={handleClearFile}>
+                      取消
+                    </Button>
+                  </div>
+                  {/* 显示 PDF 页数或加载状态 */}
+                  {selectedFile.name.toLowerCase().endsWith(".pdf") && (
+                    <div className="flex items-center gap-1">
+                      {pdfLoading ? (
+                        <Text size="small" type="tertiary">
+                          <span className="inline-block animate-pulse">正在读取 PDF 页数…</span>
+                        </Text>
+                      ) : totalPages != null ? (
+                        <Text size="small" type="tertiary">
+                          该 PDF 共 <span className="font-medium text-blue-500">{totalPages}</span> 页
+                        </Text>
+                      ) : (
+                        <Text size="small" type="warning">
+                          无法读取 PDF 页数
+                        </Text>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -592,21 +875,83 @@ export function Component() {
                 </Select>
               </div>
 
-              {/* ---- 最大转换页数滑块 ---- */}
+              {/* ---- 页码范围（双滑块 + 数值输入框） ---- */}
               <div>
-                <Text className="block mb-2 font-medium">最大转换页数</Text>
-                <Slider
-                  min={1}
-                  max={MAX_PAGES_LIMIT}
-                  step={1}
-                  value={maxPages}
-                  onChange={handleMaxPagesChange}
-                />
-                <div className="mt-1 text-right">
+                <Text className="block mb-2 font-medium">页码范围</Text>
+
+                {/* 起始页 / 结束页 输入框 */}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* 起始页输入 */}
+                  <div className="flex-1">
+                    <Text size="small" type="tertiary" className="block mb-1">
+                      起始页
+                    </Text>
+                    <Input
+                      size="small"
+                      value={startInput}
+                      onChange={handleStartInputChange}
+                      onBlur={handleStartInputBlur}
+                      onKeyDown={handleStartInputKeyDown}
+                      validateStatus={startError ? "error" : undefined}
+                      placeholder="1"
+                    />
+                    {startError && (
+                      <Text size="small" style={{ color: "var(--semi-color-danger)" }} className="block mt-0.5">
+                        {startError}
+                      </Text>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-center pt-5 px-1">
+                    <Text type="tertiary">—</Text>
+                  </div>
+
+                  {/* 结束页输入 */}
+                  <div className="flex-1">
+                    <Text size="small" type="tertiary" className="block mb-1">
+                      结束页
+                    </Text>
+                    <Input
+                      size="small"
+                      value={endInput}
+                      onChange={handleEndInputChange}
+                      onBlur={handleEndInputBlur}
+                      onKeyDown={handleEndInputKeyDown}
+                      validateStatus={endError ? "error" : undefined}
+                      placeholder={maxPage > 1 ? String(maxPage) : "1"}
+                    />
+                    {endError && (
+                      <Text size="small" style={{ color: "var(--semi-color-danger)" }} className="block mt-0.5">
+                        {endError}
+                      </Text>
+                    )}
+                  </div>
+                </div>
+
+                {/* 双向进度条（只读，蓝色填充显示所选范围占总内容的比重） */}
+                <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full absolute transition-[left,width] duration-150"
+                    style={(() => {
+                      const range = Math.max(maxPage - 1, 1);
+                      const leftPct = ((sliderStart - 1) / range) * 100;
+                      const widthPct = ((sliderEnd - sliderStart) / range) * 100;
+                      return { left: `${Math.max(0, leftPct)}%`, width: `${Math.max(0, widthPct)}%` };
+                    })()}
+                  />
+                </div>
+
+                {/* 滑块底部信息 */}
+                <div className="flex justify-between items-center mt-1">
                   <Text size="small" type="tertiary">
-                    {maxPages >= MAX_PAGES_LIMIT
-                      ? "无限制（全部页面）"
-                      : `${maxPages} 页`}
+                    {totalPages
+                      ? `共 ${totalPages} 页`
+                      : "未检测到 PDF 页数（默认 1-99999）"}
+                  </Text>
+                  <Text size="small" type="tertiary">
+                    {sliderStart === sliderEnd
+                      ? `第 ${sliderStart} 页`
+                      : `第 ${sliderStart} - ${sliderEnd} 页`}
                   </Text>
                 </div>
               </div>
