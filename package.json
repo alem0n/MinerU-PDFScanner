@@ -13,7 +13,6 @@
     "@douyinfe/semi-icons-lab": "^2.67.0",
     "@douyinfe/semi-ui": "^2.67.0",
     "@semi-bot/semi-theme-strapi": "^0.1.4",
-    "@tanstack/react-virtual": "^3.14.3",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.0",

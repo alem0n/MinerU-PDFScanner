@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react'
 import type { BlockData } from '@/shared/types'
 import type { MarkdownTheme } from '@/hooks/useMarkdownTheme'
 import { MarkdownBlockView } from '@/components/preview/MarkdownBlockView'
+import { FloatingTranslationPanel } from '@/components/preview/FloatingTranslationPanel'
 import { UnifiedEditLayer } from '@/components/preview/UnifiedEditLayer'
 import { useEditorStore } from '@/stores/editorStore'
 import { saveBlockEdit, getBlockListPath } from '@/service/preview.service'
@@ -13,9 +14,10 @@ interface MainMarkdownViewerProps {
   blockData: BlockData[][] | null
   theme: MarkdownTheme
   imageBasePath: string
+  showTypeLabel?: boolean
 }
 
-export function MainMarkdownViewer({ blockData, theme, imageBasePath }: MainMarkdownViewerProps) {
+export function MainMarkdownViewer({ blockData, theme, imageBasePath, showTypeLabel = true }: MainMarkdownViewerProps) {
   const setLayerData = useEditorStore((s) => s.setLayerData)
   const updateBlockContent = useEditorStore((s) => s.updateBlockContent)
   const markEdited = useEditorStore((s) => s.markEdited)
@@ -44,8 +46,9 @@ export function MainMarkdownViewer({ blockData, theme, imageBasePath }: MainMark
 
   return (
     <div className="main-markdown-viewer" style={{ height: '100%', overflow: 'hidden' }}>
-      <MarkdownBlockView blockData={blockData} theme={theme} imageBasePath={imageBasePath} />
+      <MarkdownBlockView blockData={blockData} theme={theme} imageBasePath={imageBasePath} showTypeLabel={showTypeLabel} />
       <UnifiedEditLayer onSave={handleSave} onCancel={handleCancel} />
+      <FloatingTranslationPanel theme={theme} />
     </div>
   )
 }

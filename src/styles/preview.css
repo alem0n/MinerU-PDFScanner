@@ -393,11 +393,12 @@
   position: relative;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 6px 12px;
-  margin: 4px 0;
+  padding: 12px 12px 6px;
+  margin: 8px 0;
   cursor: pointer;
   transition: all 0.2s ease;
-  user-select: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
 }
 .md-block-box:hover {
   border-color: var(--md-block-line);
@@ -418,14 +419,14 @@
 }
 .md-block-type-label {
   position: absolute;
-  top: -10px;
-  left: 0;
+  top: -12px;
+  left: 6px;
   display: inline-flex;
   align-items: center;
-  height: 16px;
-  padding: 0 6px;
+  height: 18px;
+  padding: 0 8px;
   border-radius: 9999px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
   color: #fff;
@@ -434,6 +435,7 @@
   opacity: 0;
   transition: opacity 0.2s;
   pointer-events: none;
+  z-index: 5;
 }
 .md-block-box:hover .md-block-type-label,
 .md-block-box.active .md-block-type-label {
@@ -444,18 +446,19 @@
 }
 .md-block-edited-tag {
   position: absolute;
-  top: -10px;
-  right: 0;
+  top: -12px;
+  right: 6px;
   display: inline-flex;
   align-items: center;
-  height: 16px;
-  padding: 0 6px;
+  height: 18px;
+  padding: 0 8px;
   border-radius: 9999px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   color: #fff;
   background: #f59e0b;
   white-space: nowrap;
+  z-index: 5;
 }
 .md-block-box.annotation-box--editing {
   border-color: #f59e0b !important;
@@ -728,3 +731,72 @@
 
 .block-table { margin: 0.5em 0; }
 .block-caption-figure { margin: 0.25em 0; }
+
+/* ============================================= */
+/* Floating translation panel — 跟随光标单条替换  */
+/* ============================================= */
+.floating-translation-panel {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.05);
+  border-left: 3px solid #3b82f6;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  pointer-events: auto;
+}
+.floating-translation-panel.error {
+  background: rgba(239, 68, 68, 0.06);
+  border-left-color: #ef4444;
+}
+.floating-translation-panel .ftp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.floating-translation-panel .ftp-status {
+  font-size: 11px;
+  color: #666;
+}
+.floating-translation-panel .ftp-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.floating-translation-panel .ftp-btn {
+  font-size: 11px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #4b5563;
+}
+.floating-translation-panel .ftp-btn:hover {
+  background: #f5f5f5;
+}
+.floating-translation-panel .ftp-body {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.floating-translation-panel .ftp-body .prose-sm {
+  margin: 0;
+}
+.floating-translation-panel .ftp-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3b82f6;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ftp-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes ftp-spin {
+  to { transform: rotate(360deg); }
+}

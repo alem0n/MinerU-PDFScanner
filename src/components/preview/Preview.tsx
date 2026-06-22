@@ -167,7 +167,7 @@ function RightPanel({ task, blockData, outputPath, theme }: {
         {/* 迁移方案 A1 — md Tab：showLayout=true 显示块视图，false 显示纯 Markdown 渲染 */}
         {viewType === 'md' && resolvedPath && (
           showLayout
-            ? <MainMarkdownViewer blockData={blockData} theme={theme} imageBasePath={resolvedPath} />
+            ? <MainMarkdownViewer blockData={blockData} theme={theme} imageBasePath={resolvedPath} showTypeLabel={false} />
             : <MarkdownRenderer outputPath={resolvedPath} theme={theme} imageBasePath={resolvedPath} />
         )}
         {viewType === 'md' && !resolvedPath && (

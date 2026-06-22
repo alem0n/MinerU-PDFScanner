@@ -1,12 +1,15 @@
 /**
  * 译文展示组件 (TranslationView)
  *
- * 位于每个 block 下方, 显示:
- *  - 全文翻译的块级译文 (按 blockId 从 store 取)
- *  - 右键选中翻译的译文列表 (一个块可多条)
+ * 位于每个 block 下方, 显示块级译文 (按 blockId 从 store 取)。
+ * 块级译文来源:
+ *  - 全文翻译 (translatePageRange 写入 blockTranslations)
+ *  - 手动块翻译 (无选中右键 → translateBlock 写入 blockTranslations, 与全文翻译共用缓存)
+ * 全文翻译时, 已有 done 译文且原文未变的块会自动缓存命中跳过 (translatePageRange:186-191)。
  *
+ * 右键选中翻译已移至 FloatingTranslationPanel (浮动面板, 单条替换, 跟随光标)。
  * 布局: 内联在 BlockItem 行内 (flex-col), 不脱离文档流, 避免重叠。
- * 译文插入后虚拟器 measureElement 自动重测行高。
+ * 连续 DOM 树方案下自然流自动计算行高, 无需 measureElement。
  */
 import { memo, useCallback } from 'react'
 import { MarkdownRenderer } from '@/components/preview/MarkdownRenderer'
@@ -139,12 +142,9 @@ export const TranslationView = memo(function TranslationView({
   theme,
 }: TranslationViewProps) {
   const blockTranslation = useTranslateStore((s) => s.blockTranslations[blockId])
-  const selectionTranslations = useTranslateStore((s) => s.selectionTranslations[blockId])
   const setBlockResult = useTranslateStore((s) => s.setBlockResult)
   const setBlockStatus = useTranslateStore((s) => s.setBlockStatus)
   const removeBlockTranslation = useTranslateStore((s) => s.removeBlockTranslation)
-  const setSelectionStatus = useTranslateStore((s) => s.setSelectionStatus)
-  const removeSelectionTranslation = useTranslateStore((s) => s.removeSelectionTranslation)
 
   /** 重试块翻译 */
   const retryBlock = useCallback(async () => {
@@ -167,40 +167,8 @@ export const TranslationView = memo(function TranslationView({
     }
   }, [blockId, blockPosition, blockTranslation, setBlockResult, setBlockStatus])
 
-  /** 重试选中翻译 */
-  const retrySelection = useCallback(
-    async (index: number) => {
-      const item = selectionTranslations?.[index]
-      if (!item) return
-      setSelectionStatus(blockId, index, 'requesting')
-      try {
-        const results = await translateService.translate([item.source])
-        if (results.length > 0) {
-          setSelectionStatus(blockId, index, 'done')
-          // 更新译文内容 (通过 addSelectionResult 覆盖不太合适, 用 setSelectionStatus + 直接改)
-          // 这里用 setBlockResult 的模式不匹配, 用 store 的 setSelectionStatus 即可
-          // 但需要更新 target — 通过 setSelectionStatus 不改 target, 需要另一种方式
-          // 简化: 直接用 store 的 addSelectionResult 替换 — 不, 那会追加
-          // 最好在 store 加一个 updateSelectionResult action
-          // 临时方案: removeSelectionTranslation + addSelectionResult
-          removeSelectionTranslation(blockId, index)
-          useTranslateStore.getState().addSelectionResult(blockId, {
-            source: item.source,
-            target: results[0].text,
-            status: 'done',
-          })
-        }
-      } catch (err: any) {
-        const msg = err instanceof TranslateError ? err.message : err?.message || '翻译失败'
-        setSelectionStatus(blockId, index, 'error', msg)
-        logger.warn(`retry selection failed: ${msg}`)
-      }
-    },
-    [blockId, selectionTranslations, setSelectionStatus, removeSelectionTranslation],
-  )
-
-  // 无任何译文时不渲染
-  if (!blockTranslation && (!selectionTranslations || selectionTranslations.length === 0)) {
+  // 无块级译文时不渲染 (选中译文已移至 FloatingTranslationPanel)
+  if (!blockTranslation) {
     return null
   }
 
@@ -209,8 +177,8 @@ export const TranslationView = memo(function TranslationView({
 
   return (
     <div className="translation-view" onClick={(e) => e.stopPropagation()}>
-      {/* 块级译文 (全文翻译) */}
-      {blockTranslation && blockTranslation.status !== 'skipped' && blockTranslation.status !== 'cancelled' && (
+      {/* 块级译文 (全文翻译 / 手动块翻译, 共用 blockTranslations 缓存) */}
+      {blockTranslation.status !== 'skipped' && blockTranslation.status !== 'cancelled' && (
         <TranslationCard
           target={blockTranslation.target}
           status={blockTranslation.status}
@@ -221,19 +189,6 @@ export const TranslationView = memo(function TranslationView({
           onRemove={() => removeBlockTranslation(blockId)}
         />
       )}
-
-      {/* 选中翻译列表 (右键翻译) */}
-      {selectionTranslations?.map((item, index) => (
-        <TranslationCard
-          key={`${blockId}-sel-${index}`}
-          target={item.target}
-          status={item.status}
-          error={item.error}
-          theme={theme}
-          onRetry={() => retrySelection(index)}
-          onRemove={() => removeSelectionTranslation(blockId, index)}
-        />
-      ))}
     </div>
   )
 })

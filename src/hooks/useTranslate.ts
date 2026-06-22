@@ -93,9 +93,10 @@ export function splitLongText(text: string, maxChars: number): string[] {
 }
 
 export function useTranslate() {
-  const addSelectionResult = useTranslateStore((s) => s.addSelectionResult)
-  const setSelectionStatus = useTranslateStore((s) => s.setSelectionStatus)
-  const removeSelectionTranslation = useTranslateStore((s) => s.removeSelectionTranslation)
+  const setFloatingResult = useTranslateStore((s) => s.setFloatingResult)
+  const setFloatingStatus = useTranslateStore((s) => s.setFloatingStatus)
+  const updateFloatingTarget = useTranslateStore((s) => s.updateFloatingTarget)
+  const clearFloating = useTranslateStore((s) => s.clearFloating)
   const setBlockResult = useTranslateStore((s) => s.setBlockResult)
   const setBlockStatus = useTranslateStore((s) => s.setBlockStatus)
   const initBatch = useTranslateStore((s) => s.initBatch)
@@ -111,15 +112,13 @@ export function useTranslate() {
   const isExtendingRef = useRef(false)
   const jumpDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  /** 右键选中翻译 */
+  /** 右键选中翻译 → 浮动面板 (单条, 新替旧) */
   const translateSelection = useCallback(
-    async (blockId: string, selectedText: string) => {
+    async (selectedText: string, x: number, y: number) => {
       const text = selectedText.trim()
       if (!text) return
 
-      addSelectionResult(blockId, { source: text, target: '', status: 'requesting' })
-      const list = useTranslateStore.getState().selectionTranslations[blockId] || []
-      const index = list.length - 1
+      setFloatingResult({ source: text, target: '', status: 'requesting', x, y })
 
       try {
         if (!(await translateService.isConfigured())) {
@@ -127,26 +126,78 @@ export function useTranslate() {
         }
         const results = await translateService.translate([text])
         if (results.length > 0) {
-          removeSelectionTranslation(blockId, index)
-          useTranslateStore.getState().addSelectionResult(blockId, {
-            source: text,
-            target: results[0].text,
-            status: 'done',
-          })
+          updateFloatingTarget(results[0].text)
         } else {
-          setSelectionStatus(blockId, index, 'error', '未返回有效译文')
+          setFloatingStatus('error', '未返回有效译文')
         }
       } catch (err: any) {
         if (err?.name === 'AbortError') {
-          setSelectionStatus(blockId, index, 'cancelled')
+          setFloatingStatus('cancelled')
           return
         }
         const msg = err instanceof TranslateError ? err.message : err?.message || '翻译失败'
-        setSelectionStatus(blockId, index, 'error', msg)
+        setFloatingStatus('error', msg)
         logger.warn(`translateSelection failed: ${msg}`)
       }
     },
-    [addSelectionResult, setSelectionStatus, removeSelectionTranslation],
+    [setFloatingResult, setFloatingStatus, updateFloatingTarget],
+  )
+
+  /** 重试浮动翻译 */
+  const retryFloating = useCallback(async () => {
+    const cur = useTranslateStore.getState().floatingTranslation
+    if (!cur || cur.status === 'requesting') return
+    setFloatingStatus('requesting')
+    try {
+      if (!(await translateService.isConfigured())) {
+        throw new TranslateError('翻译引擎未配置, 请先在设置中配置', 'config')
+      }
+      const results = await translateService.translate([cur.source])
+      if (results.length > 0) {
+        updateFloatingTarget(results[0].text)
+      } else {
+        setFloatingStatus('error', '未返回有效译文')
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setFloatingStatus('cancelled')
+        return
+      }
+      const msg = err instanceof TranslateError ? err.message : err?.message || '翻译失败'
+      setFloatingStatus('error', msg)
+      logger.warn(`retryFloating failed: ${msg}`)
+    }
+  }, [setFloatingStatus, updateFloatingTarget])
+
+  /** 右键块翻译 (无选中时) → 写入 blockTranslations, 原文下方显示 + 全文翻译缓存命中跳过 */
+  const translateBlock = useCallback(
+    async (blockId: string, text: string, blockPosition?: string) => {
+      const source = text.trim()
+      if (!source) return
+
+      setBlockResult(blockId, { blockPosition, source, target: '', status: 'requesting' })
+
+      try {
+        if (!(await translateService.isConfigured())) {
+          throw new TranslateError('翻译引擎未配置, 请先在设置中配置', 'config')
+        }
+        const results = await translateService.translate([source])
+        if (results.length > 0) {
+          setBlockResult(blockId, { blockPosition, source, target: results[0].text, status: 'done' })
+        } else {
+          setBlockStatus(blockId, 'error', '未返回有效译文')
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          setBlockStatus(blockId, 'cancelled')
+          return
+        }
+        const msg = err instanceof TranslateError ? err.message : err?.message || '翻译失败'
+        setBlockStatus(blockId, 'error', msg)
+        logger.warn(`translateBlock failed: ${msg}`)
+      }
+    },
+    [setBlockResult, setBlockStatus],
   )
 
   /** 翻译一个页范围 (内部核心) */
@@ -458,6 +509,9 @@ export function useTranslate() {
 
   return {
     translateSelection,
+    retryFloating,
+    translateBlock,
+    clearFloating,
     startWindowTranslate,
     extendWindow,
     stopSession,

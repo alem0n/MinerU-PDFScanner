@@ -32,14 +32,18 @@ export interface BlockTranslation {
   at: number
 }
 
-/** 右键选中翻译结果 (一个块可多条) */
-export interface SelectionTranslation {
+/** 右键选中翻译结果 (浮动面板, 单条替换) */
+export interface FloatingTranslation {
   /** 选中原文片段 */
   source: string
   /** 译文 */
   target: string
   status: TranslationStatus
   error?: string
+  /** 右键触发坐标, 用于面板定位 */
+  x: number
+  y: number
+  /** 时间戳 */
   at: number
 }
 
@@ -73,8 +77,8 @@ export const PREFETCH_EDGE = 2
 export interface TranslateStore {
   /** 全文翻译: 按 blockId 存 (累积缓存, 窗口滑动不清除) */
   blockTranslations: Record<string, BlockTranslation>
-  /** 右键选中翻译: 按 blockId 存 (一个块可多条) */
-  selectionTranslations: Record<string, SelectionTranslation[]>
+  /** 右键选中翻译: 浮动面板单条 (新替旧) */
+  floatingTranslation: FloatingTranslation | null
   /** 全文翻译批次状态 */
   batch: BatchState
   /** 取消信号句柄 */
@@ -86,14 +90,16 @@ export interface TranslateStore {
   setBlockResult: (blockId: string, result: Partial<BlockTranslation> & { source: string; target: string }) => void
   /** 设置块状态 */
   setBlockStatus: (blockId: string, status: TranslationStatus, error?: string) => void
-  /** 添加右键选中翻译结果 */
-  addSelectionResult: (blockId: string, result: Partial<SelectionTranslation> & { source: string; target: string }) => void
-  /** 设置右键选中翻译状态 */
-  setSelectionStatus: (blockId: string, index: number, status: TranslationStatus, error?: string) => void
+  /** 设置浮动翻译 (整体替换, 单条) */
+  setFloatingResult: (result: Partial<FloatingTranslation> & { source: string; target: string; x: number; y: number }) => void
+  /** 设置浮动翻译状态 */
+  setFloatingStatus: (status: TranslationStatus, error?: string) => void
+  /** 更新浮动翻译译文 */
+  updateFloatingTarget: (target: string) => void
+  /** 清空浮动翻译 */
+  clearFloating: () => void
   /** 移除单块译文 */
   removeBlockTranslation: (blockId: string) => void
-  /** 移除右键选中翻译 */
-  removeSelectionTranslation: (blockId: string, index: number) => void
 
   /** 初始化批次 (设置 totalPages, sessionActive) */
   initBatch: (totalPages: number) => void
@@ -134,7 +140,7 @@ const initialBatch: BatchState = {
 
 export const useTranslateStore = create<TranslateStore>()((set) => ({
   blockTranslations: {},
-  selectionTranslations: {},
+  floatingTranslation: null,
   batch: { ...initialBatch },
   abortController: null,
 
@@ -168,60 +174,46 @@ export const useTranslateStore = create<TranslateStore>()((set) => ({
     })
   },
 
-  addSelectionResult: (blockId, result) => {
+  setFloatingResult: (result) => {
+    set({
+      floatingTranslation: {
+        source: result.source,
+        target: result.target,
+        status: result.status || 'requesting',
+        error: result.error,
+        x: result.x,
+        y: result.y,
+        at: Date.now(),
+      },
+    })
+  },
+
+  setFloatingStatus: (status, error) => {
     set((state) => {
-      const existing = state.selectionTranslations[blockId] || []
+      if (!state.floatingTranslation) return {}
       return {
-        selectionTranslations: {
-          ...state.selectionTranslations,
-          [blockId]: [
-            ...existing,
-            {
-              source: result.source,
-              target: result.target,
-              status: result.status || 'done',
-              error: result.error,
-              at: Date.now(),
-            },
-          ],
-        },
+        floatingTranslation: { ...state.floatingTranslation, status, error, at: Date.now() },
       }
     })
   },
 
-  setSelectionStatus: (blockId, index, status, error) => {
+  updateFloatingTarget: (target) => {
     set((state) => {
-      const list = state.selectionTranslations[blockId]
-      if (!list || !list[index]) return {}
-      const newList = [...list]
-      newList[index] = { ...newList[index], status, error, at: Date.now() }
+      if (!state.floatingTranslation) return {}
       return {
-        selectionTranslations: {
-          ...state.selectionTranslations,
-          [blockId]: newList,
-        },
+        floatingTranslation: { ...state.floatingTranslation, target, status: 'done', at: Date.now() },
       }
     })
+  },
+
+  clearFloating: () => {
+    set({ floatingTranslation: null })
   },
 
   removeBlockTranslation: (blockId) => {
     set((state) => {
       const { [blockId]: _, ...rest } = state.blockTranslations
       return { blockTranslations: rest }
-    })
-  },
-
-  removeSelectionTranslation: (blockId, index) => {
-    set((state) => {
-      const list = state.selectionTranslations[blockId]
-      if (!list) return {}
-      const newList = list.filter((_, i) => i !== index)
-      return {
-        selectionTranslations: {
-          ...state.selectionTranslations,
-          [blockId]: newList,
-        },
-      }
     })
   },
 
@@ -294,7 +286,7 @@ export const useTranslateStore = create<TranslateStore>()((set) => ({
     logger.info('clearAll: clearing translations and batch state')
     set({
       blockTranslations: {},
-      selectionTranslations: {},
+      floatingTranslation: null,
       batch: { ...initialBatch },
       abortController: null,
     })

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useCallback, useState, memo } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BlockData } from '@/shared/types'
 import { getBlockColor } from '@/utils/blockColor'
 import { BlockContentRenderer } from '@/components/preview/BlockContentRenderer'
@@ -14,6 +13,7 @@ interface MarkdownBlockViewProps {
   blockData: BlockData[][] | null
   theme?: MarkdownTheme
   imageBasePath?: string
+  showTypeLabel?: boolean
 }
 
 type ListItem =
@@ -25,9 +25,10 @@ interface BlockItemProps {
   isActive: boolean; isEditing: boolean; isEdited: boolean
   onBlockClick: (block: BlockData) => void; onBlockDoubleClick: (block: BlockData) => void
   onContextMenu: (e: React.MouseEvent, block: BlockData) => void
+  showTypeLabel?: boolean
 }
 
-const BlockItem = memo(function BlockItem({ block, theme, imageBasePath, isActive, isEditing, isEdited, onBlockClick, onBlockDoubleClick, onContextMenu }: BlockItemProps) {
+const BlockItem = memo(function BlockItem({ block, theme, imageBasePath, isActive, isEditing, isEdited, onBlockClick, onBlockDoubleClick, onContextMenu, showTypeLabel = true }: BlockItemProps) {
   const color = getBlockColor(block.type)
   return (
     <div data-block-id={block.id}
@@ -35,7 +36,7 @@ const BlockItem = memo(function BlockItem({ block, theme, imageBasePath, isActiv
       style={{ '--md-block-line': isActive ? '#1677ff' : color.line, '--md-block-fill': isActive ? 'rgba(22, 119, 255, 0.08)' : color.fill } as React.CSSProperties}
       onClick={() => onBlockClick(block)} onDoubleClick={() => onBlockDoubleClick(block)}
       onContextMenu={(e) => onContextMenu(e, block)}>
-      <span className="md-block-type-label">{block.type}</span>
+      {showTypeLabel && <span className="md-block-type-label">{block.type}</span>}
       {isEdited && <span className="md-block-edited-tag">已编辑</span>}
       <div className="block-section-text prose-sm">
         {block.is_discarded && ['header','footer','page_number','aside_text','page_footnote'].includes(block.type)
@@ -47,7 +48,7 @@ const BlockItem = memo(function BlockItem({ block, theme, imageBasePath, isActiv
   )
 })
 
-export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: MarkdownBlockViewProps) {
+export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath, showTypeLabel = true }: MarkdownBlockViewProps) {
   const activeBlockId = useEditorStore((s) => s.activeBlockId)
   const activeBlockSource = useEditorStore((s) => s.activeBlockSource)
   const setActiveBlockId = useEditorStore((s) => s.setActiveBlockId)
@@ -55,12 +56,11 @@ export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: 
   const editInfo = useEditorStore((s) => s.editInfo)
   const setEditInfo = useEditorStore((s) => s.setEditInfo)
   const editedBlocks = useEditorStore((s) => s.editedBlocks)
-  const { translateSelection } = useTranslate()
+  const { translateSelection, translateBlock } = useTranslate()
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; blockId: string; selectedText: string } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const editInfoRef = useRef(editInfo)
-  const programmaticScrollRef = useRef(false)
-  const scrollRafRef = useRef<number>(0)
+  const pageObserverRef = useRef<IntersectionObserver | null>(null)
   useEffect(() => { editInfoRef.current = editInfo }, [editInfo])
 
   const items = useMemo<ListItem[]>(() => {
@@ -78,59 +78,54 @@ export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: 
     return result
   }, [blockData])
 
-  const virtualizer = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => containerRef.current,
-    estimateSize: (index) => {
-      const item = items[index]
-      if (item?.kind === 'block') {
-        const t = item.block.type
-        if (t === 'image' || t === 'chart' || t === 'seal') return 400
-        if (t === 'table') return 300
-        if (t === 'equation') return 120
-        if (t === 'code') return 200
-        return 140
-      }
-      return 60
-    },
-    overscan: 8,
-  })
-
+  /** 滚动到 active 区块 (替代 virtualizer.scrollToIndex) */
   useEffect(() => {
     if (!activeBlockId || activeBlockSource === 'markdown') return
-    const idx = items.findIndex((item) => item.kind === 'block' && item.block.id === activeBlockId)
-    if (idx >= 0) {
-      programmaticScrollRef.current = true
-      virtualizer.scrollToIndex(idx, { align: 'center', behavior: 'auto' })
-      setTimeout(() => { programmaticScrollRef.current = false }, 300)
+    const el = containerRef.current?.querySelector(`[data-block-id="${activeBlockId}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'auto' })
     }
-  }, [activeBlockId, activeBlockSource, items, virtualizer])
+  }, [activeBlockId, activeBlockSource])
 
-  /** 滚动时检测当前页 (rAF 节流, 程序滚动时跳过) */
+  /** 当前页检测: IntersectionObserver 监听页面分隔线 (替代 virtualizer.getVirtualItems) */
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    pageObserverRef.current?.disconnect()
+
+    const separators = container.querySelectorAll<HTMLElement>('.block-page-separator')
+    if (separators.length === 0) return
+
+    pageObserverRef.current = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+        if (visible.length > 0) {
+          const pageIdx = Number(visible[0].target.getAttribute('data-page-idx'))
+          if (!isNaN(pageIdx)) {
+            setCurrentPage(pageIdx + 1, 'markdown')
+          }
+        }
+      },
+      { root: container, rootMargin: '-20px 0px -80% 0px' },
+    )
+
+    separators.forEach((el) => pageObserverRef.current?.observe(el))
+    return () => pageObserverRef.current?.disconnect()
+  }, [items, setCurrentPage])
+
   const handleScroll = useCallback(() => {
-    if (programmaticScrollRef.current) return
-    if (scrollRafRef.current) return
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = 0
-      const container = containerRef.current
-      if (!container) return
-      const scrollTop = container.scrollTop
-      const virtualItems = virtualizer.getVirtualItems()
-      if (virtualItems.length === 0) return
-      // 找到最顶部可见的 item
-      let topItem = virtualItems[0]
-      for (const vi of virtualItems) {
-        if (vi.start <= scrollTop + 20) topItem = vi
-        else break
-      }
-      const item = items[topItem.index]
-      if (!item) return
-      const page = item.kind === 'separator' ? item.pageIdx + 1 : item.pageIdx + 1
-      setCurrentPage(page, 'markdown')
-    })
-  }, [items, virtualizer, setCurrentPage])
+    // 页面检测交给 IntersectionObserver, 这里留空
+  }, [])
 
-  const handleClick = useCallback((block: BlockData) => { setActiveBlockId(activeBlockId === block.id ? null : block.id, 'markdown') }, [activeBlockId, setActiveBlockId])
+  /** 点击区块: 选中文字时不切换 active (避免选中误触) */
+  const handleClick = useCallback((block: BlockData) => {
+    const sel = window.getSelection()
+    if (sel && sel.toString().trim().length > 0) return
+    setActiveBlockId(activeBlockId === block.id ? null : block.id, 'markdown')
+  }, [activeBlockId, setActiveBlockId])
 
   const handleDoubleClick = useCallback((block: BlockData) => {
     const newEditInfo = { id: block.block_position || '', type: block.type, content: block.text || '', blockId: block.id }
@@ -139,27 +134,38 @@ export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: 
     setEditInfo(newEditInfo)
   }, [setEditInfo])
 
-  /** 右键菜单: 弹出"翻译"选项（有选中文本则翻译选中，否则翻译整块） */
+  /** 右键菜单: 弹出"翻译"选项
+   *  - 有选中文字: 选中翻译 → 浮动面板
+   *  - 无选中: 翻译整块 → 原文下方 + 缓存 (全文翻译时跳过)
+   */
   const handleContextMenu = useCallback((e: React.MouseEvent, block: BlockData) => {
     e.preventDefault()
     const selection = window.getSelection()
     const selectedText = selection?.toString().trim() || ''
-    const text = selectedText || block.text || ''
-    if (!text) return
-    setContextMenu({ x: e.clientX, y: e.clientY, blockId: block.id, selectedText: text })
+    if (!selectedText && !block.text) return
+    setContextMenu({ x: e.clientX, y: e.clientY, blockId: block.id, selectedText })
   }, [])
 
-  /** 点击"翻译"菜单项 */
+  /** 点击"翻译"菜单项: 分流选中翻译 / 块翻译 */
   const handleTranslateMenuClick = useCallback(async () => {
     if (!contextMenu) return
-    const { blockId, selectedText } = contextMenu
+    const { blockId, selectedText, x, y } = contextMenu
     setContextMenu(null)
     if (!(await translateService.isConfigured())) {
       Toast.warning('请先在设置中配置翻译引擎')
       return
     }
-    translateSelection(blockId, selectedText)
-  }, [contextMenu, translateSelection])
+    if (selectedText) {
+      // 选中翻译 → 浮动面板
+      translateSelection(selectedText, x, y)
+    } else {
+      // 块翻译 → 原文下方 + blockTranslations 缓存 (全文翻译时自动跳过)
+      const block = items.find((it): it is Extract<ListItem, { kind: 'block' }> => it.kind === 'block' && it.block.id === blockId)?.block
+      if (block?.text) {
+        translateBlock(blockId, block.text, block.block_position)
+      }
+    }
+  }, [contextMenu, translateSelection, translateBlock, items])
 
   /** 关闭菜单 (点击外部/Escape) */
   useEffect(() => {
@@ -179,32 +185,24 @@ export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: 
   if (!blockData || blockData.length === 0 || items.length === 0) return <p className="text-sm text-gray-400">暂无块数据</p>
 
   return (
-    <div ref={containerRef} className="block-markdown-view" style={{ height: '100%', overflow: 'auto', contain: 'strict' }} onScroll={handleScroll}>
-      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-        {virtualizer.getVirtualItems().map((vItem) => {
-          const item = items[vItem.index]
-          if (!item) return null
-          if (item.kind === 'separator') {
-            return (
-              <div key={item.key} ref={virtualizer.measureElement} data-index={vItem.index}
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}>
-                <div className="block-page-separator">第 {item.pageIdx + 1} 页</div>
-              </div>
-            )
-          }
-          const { block } = item
+    <div ref={containerRef} className="block-markdown-view" style={{ height: '100%', overflow: 'auto' }} onScroll={handleScroll}>
+      {items.map((item) => {
+        if (item.kind === 'separator') {
           return (
-            <div key={item.key} ref={virtualizer.measureElement} data-index={vItem.index}
-              style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start}px)` }}>
-              <BlockItem block={block} pageIdx={item.pageIdx} theme={theme} imageBasePath={imageBasePath}
-                isActive={block.id === activeBlockId} isEditing={editInfo?.blockId === block.id}
-                isEdited={!!(block.block_position && editedBlocks[block.block_position])}
-                onBlockClick={handleClick} onBlockDoubleClick={handleDoubleClick}
-                onContextMenu={handleContextMenu} />
+            <div key={item.key} className="block-page-separator" data-page-idx={item.pageIdx}>
+              第 {item.pageIdx + 1} 页
             </div>
           )
-        })}
-      </div>
+        }
+        const { block } = item
+        return (
+          <BlockItem key={item.key} block={block} pageIdx={item.pageIdx} theme={theme} imageBasePath={imageBasePath}
+            isActive={block.id === activeBlockId} isEditing={editInfo?.blockId === block.id}
+            isEdited={!!(block.block_position && editedBlocks[block.block_position])}
+            onBlockClick={handleClick} onBlockDoubleClick={handleDoubleClick}
+            onContextMenu={handleContextMenu} showTypeLabel={showTypeLabel} />
+        )
+      })}
       {/* 右键翻译菜单 */}
       {contextMenu && (
         <div
