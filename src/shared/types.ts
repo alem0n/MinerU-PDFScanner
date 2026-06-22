@@ -35,12 +35,6 @@ export enum OlderModelVersion {
   V2 = 'v2',
 }
 
-export enum ViewType {
-  Markdown = 'md',
-  JSON = 'json',
-  Chem = 'chem',
-}
-
 export enum ExportFormat {
   MARKDOWN = 'md',
   HTML = 'html',

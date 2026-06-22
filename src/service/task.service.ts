@@ -9,7 +9,7 @@ import { configService } from "./config.service";
 import { open } from "@tauri-apps/plugin-shell";
 import type { LayoutPage } from "@/shared/convertLayout";
 import { convertLayoutToBlocks } from "@/shared/convertLayout";
-import type { BlockListData } from "@/shared/types";
+import type { BlockListData, BlockData, MergeConnection } from "@/shared/types";
 
 // ============================================================
 // C.1 — 类型定义
@@ -31,6 +31,8 @@ export interface LoadTaskResult {
   contentList: ContentListItem[];
   pageNumber: number;
   markdowns: MarkdownItem[];
+  blockData: BlockData[][] | null;
+  mergeConnections: MergeConnection[];
 }
 
 export interface ContentListItem {
@@ -657,12 +659,35 @@ export class TaskService {
       console.warn(`[TaskService] 任务 ${task_id} 无解压路径，跳过 block_list.json 生成`);
     }
 
+    // 读取已生成的 block_list.json，提供给 Preview 组件消费
+    let blockData: BlockData[][] | null = null;
+    let mergeConnections: MergeConnection[] = [];
+    if (task.unzip_file_output_path) {
+      try {
+        const { join } = await import("@tauri-apps/api/path");
+        const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
+        const blockListPath = await join(task.unzip_file_output_path, "block_list.json");
+        const fileExists = await exists(blockListPath);
+        if (fileExists) {
+          const raw = await readTextFile(blockListPath);
+          const parsed = JSON.parse(raw) as BlockListData;
+          blockData = parsed.pdfData || [];
+          mergeConnections = parsed.mergeConnections || [];
+          console.log(`[TaskService] block_list.json 已加载: ${blockData.length} 页, ${mergeConnections.length} 合并连接`);
+        }
+      } catch (error) {
+        console.error(`[TaskService] 读取 block_list.json 失败:`, error);
+      }
+    }
+
     // 新数据模型下，预览页面数据通过 url / full_md_link / full_zip_url 获取
     return {
       task,
       contentList: [],
       pageNumber: 0,
       markdowns: [],
+      blockData,
+      mergeConnections,
     };
   }
 

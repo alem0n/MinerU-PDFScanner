@@ -1,4 +1,5 @@
 import "./global.css";
+import "./styles/preview.css";
 import { Layout } from "./layout";
 import { Outlet } from "react-router-dom";
 
