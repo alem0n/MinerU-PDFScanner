@@ -72,12 +72,31 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+/**
+ * 从 HTTP URL 中提取末尾文件名，供本地文件 fallback 使用。
+ * e.g. "http://localhost:8080/images/abc.jpg" → "abc.jpg"
+ */
+function extractFilenameFromUrl(urlStr: string): string | null {
+  try {
+    const url = new URL(urlStr)
+    const segments = url.pathname.split('/').filter(Boolean)
+    return segments.pop() || null
+  } catch {
+    return null
+  }
+}
+
 export function LazyImage(props: React.ImgHTMLAttributes<HTMLImageElement> & { imageBasePath?: string }) {
   const { src, alt, imageBasePath, ...rest } = props
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(true)
   const imgRef = useRef<HTMLDivElement>(null)
   const [inView, setInView] = useState(false)
+  const blobUrlRef = useRef<string | null>(null)
+  const resolveIdRef = useRef(0)
 
+  // IntersectionObserver 懒加载
   useEffect(() => {
     const el = imgRef.current
     if (!el) return
@@ -94,7 +113,75 @@ export function LazyImage(props: React.ImgHTMLAttributes<HTMLImageElement> & { i
     return () => observer.disconnect()
   }, [])
 
-  const resolvedSrc = resolveImageUrl(src || '', imageBasePath)
+  // 清理 blob URL
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
+  }, [])
+
+  // 解析图片源：当进入视口时触发
+  useEffect(() => {
+    if (!inView || !src) return
+
+    const currentId = ++resolveIdRef.current
+    setLoading(true)
+    setError(false)
+    setImgSrc(null)
+
+    async function resolve() {
+      // 情况 A：HTTP(S) URL → 通过 fetch 从后端拉取 → blob URL
+      if (/^https?:\/\//i.test(src)) {
+        try {
+          const response = await fetch(src, { mode: 'cors' })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const blob = await response.blob()
+          const objectUrl = URL.createObjectURL(blob)
+          // 清理旧 blob URL
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+          blobUrlRef.current = objectUrl
+          if (currentId === resolveIdRef.current) {
+            setImgSrc(objectUrl)
+            setLoading(false)
+          }
+          return
+        } catch {
+          // HTTP 拉取失败 → 尝试本地文件 fallback
+          // 从 URL 中提取文件名，应用与 normalizeImgPath 一致的 images/ 前缀约定
+          const filename = extractFilenameFromUrl(src)
+          if (filename && imageBasePath) {
+            const localName = filename.includes('/') || filename.includes('\\')
+              ? filename
+              : `images/${filename}`
+            const localUrl = resolveImageUrl(localName, imageBasePath)
+            if (currentId === resolveIdRef.current) {
+              setImgSrc(localUrl)
+              setLoading(false)
+            }
+            return
+          }
+        }
+        // HTTP 与本地均失败
+        if (currentId === resolveIdRef.current) {
+          setError(true)
+          setLoading(false)
+        }
+        return
+      }
+
+      // 情况 B：本地路径 → 直接通过 convertFileSrc 解析
+      const resolved = resolveImageUrl(src, imageBasePath)
+      if (currentId === resolveIdRef.current) {
+        setImgSrc(resolved)
+        setLoading(false)
+      }
+    }
+
+    resolve()
+  }, [src, imageBasePath, inView])
 
   if (error) {
     return (
@@ -104,7 +191,7 @@ export function LazyImage(props: React.ImgHTMLAttributes<HTMLImageElement> & { i
     )
   }
 
-  if (!inView) {
+  if (loading || !imgSrc) {
     return (
       <div ref={imgRef} className="flex items-center justify-center bg-gray-100 rounded" style={{ minHeight: 120 }}>
         <span className="text-sm text-gray-400">加载中...</span>
@@ -114,7 +201,7 @@ export function LazyImage(props: React.ImgHTMLAttributes<HTMLImageElement> & { i
 
   return (
     <img
-      src={resolvedSrc}
+      src={imgSrc}
       alt={alt}
       onError={() => setError(true)}
       /* 迁移方案要求"支持自适应容器"——maxWidth:100% 限制不超出容器，height:auto 保持宽高比 */
