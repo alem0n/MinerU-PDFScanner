@@ -120,7 +120,6 @@ class Semaphore {
 
 export class TranslateService {
   private store: SettingsStore<TranslateConfig>
-  private configCache: TranslateConfig | null = null
   private requestCache: Map<string, TranslateResult[]>
   private semaphore: Semaphore
 
@@ -130,21 +129,19 @@ export class TranslateService {
     this.semaphore = new Semaphore(DEFAULT_TRANSLATE_CONFIG.concurrency)
   }
 
-  /** 加载翻译配置 (带默认值合并) */
+  /** 加载翻译配置 (从持久化存储读取，带默认值合并) */
   async getConfig(): Promise<TranslateConfig> {
-    if (this.configCache) return this.configCache
     const data = await this.store.get()
-    this.configCache = { ...DEFAULT_TRANSLATE_CONFIG, ...data }
+    const cfg = { ...DEFAULT_TRANSLATE_CONFIG, ...data }
     // 同步并发上限
-    this.semaphore.setMax(this.configCache.concurrency)
-    logger.info(`config loaded: apiType=${this.configCache.apiType}, targetLang=${this.configCache.targetLang}`)
-    return this.configCache
+    this.semaphore.setMax(cfg.concurrency)
+    logger.info(`config loaded: apiType=${cfg.apiType}, targetLang=${cfg.targetLang}`)
+    return cfg
   }
 
-  /** 保存翻译配置 */
+  /** 保存翻译配置 (写入持久化存储) */
   async saveConfig(config: TranslateConfig): Promise<void> {
     logger.info(`config saved: apiType=${config.apiType}, targetLang=${config.targetLang}`)
-    this.configCache = config
     this.semaphore.setMax(config.concurrency)
     clearCache('TRANSLATE_CONFIG')
     await this.store.set(config)

@@ -54,9 +54,9 @@ export class ConfigService {
         }
     }
 
-    set(config: Config) {
+    async set(config: Config): Promise<void> {
         clearCache("CONFIG")
-        return this.store.set(config)
+        await this.store.set(config)
     }
 }
 

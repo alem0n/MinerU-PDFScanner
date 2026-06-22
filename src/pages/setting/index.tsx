@@ -100,11 +100,13 @@ export function Component() {
       translateFormRef.current.formApi.setValue("apiType", apiType);
       translateFormRef.current.formApi.setValue("apiUrl", defaults.apiUrl);
       translateFormRef.current.formApi.setValue("model", defaults.model);
+      // 从表单 API 获取当前所有输入值（enabled、apiKey 等用户已填的字段）
+      const formValues = translateFormRef.current.formApi.getValues() as Partial<TranslateConfig>;
+      const newConfig = { ...translateConfig, ...formValues, apiType, apiUrl: defaults.apiUrl, model: defaults.model };
+      setTranslateConfig(newConfig);
+      // 立即保存，确保切换服务商后其他组件能立即获取到最新配置
+      translateSetReq.run(newConfig);
     }
-    const newConfig = { ...translateConfig, apiType, apiUrl: defaults.apiUrl, model: defaults.model };
-    setTranslateConfig(newConfig);
-    // 立即保存，确保切换服务商后其他组件能立即获取到最新配置
-    translateSetReq.run(newConfig);
   }, [translateConfig]);
 
   console.log("data", data);
