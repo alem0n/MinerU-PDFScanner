@@ -7,6 +7,9 @@ import { Notification } from "@douyinfe/semi-ui";
 import { clearCache } from "ahooks";
 import { configService } from "./config.service";
 import { open } from "@tauri-apps/plugin-shell";
+import type { LayoutPage } from "@/shared/convertLayout";
+import { convertLayoutToBlocks } from "@/shared/convertLayout";
+import type { BlockListData } from "@/shared/types";
 
 // ============================================================
 // C.1 — 类型定义
@@ -643,14 +646,118 @@ export class TaskService {
       throw new Error("任务不存在");
     }
 
+    // 自动化生成 block_list.json（从解压目录中的 _middle.json 转换）
+    if (task.unzip_file_output_path) {
+      try {
+        await this.ensureBlockListJson(task.unzip_file_output_path);
+      } catch (error) {
+        console.error(`[TaskService] block_list.json 自动生成失败:`, error);
+      }
+    } else {
+      console.warn(`[TaskService] 任务 ${task_id} 无解压路径，跳过 block_list.json 生成`);
+    }
+
     // 新数据模型下，预览页面数据通过 url / full_md_link / full_zip_url 获取
-    // 当前返回空预览，后续可根据需要扩展
     return {
       task,
       contentList: [],
       pageNumber: 0,
       markdowns: [],
     };
+  }
+
+  // ========================================================
+  // block_list.json 自动生成
+  // ========================================================
+
+  /**
+   * 扫描解压目录中的 _middle.json 文件，自动生成 block_list.json。
+   * 所有匹配 *_middle.json 的文件均参与转换，转换规则由 convertLayoutToBlocks 定义。
+   * 若目录不存在或无 _middle.json，生成空 block_list.json 并记录警告。
+   */
+  private async ensureBlockListJson(outputPath: string): Promise<void> {
+    const { readDir, readTextFile, writeFile } = await import("@tauri-apps/plugin-fs");
+    const { join } = await import("@tauri-apps/api/path");
+
+    const blockListPath = await join(outputPath, "block_list.json");
+
+    console.log(`[TaskService] 开始生成 block_list.json，扫描目录: ${outputPath}`);
+
+    // 1. 扫描 *_middle.json 文件
+    let entries: { name?: string }[];
+    try {
+      entries = await readDir(outputPath);
+    } catch {
+      console.warn(`[TaskService] 解压目录不存在或无法读取: ${outputPath}，生成空 block_list.json`);
+      await writeFile(blockListPath, new TextEncoder().encode(JSON.stringify({ pdfData: [], mergeConnections: [] }, null, 2)));
+      return;
+    }
+
+    const middleFiles = entries
+      .filter(e => e.name && e.name.endsWith("_middle.json"))
+      .map(e => e.name!);
+
+    if (middleFiles.length === 0) {
+      console.warn(`[TaskService] 未找到 _middle.json 文件，生成空 block_list.json`);
+      await writeFile(blockListPath, new TextEncoder().encode(JSON.stringify({ pdfData: [], mergeConnections: [] }, null, 2)));
+      return;
+    }
+
+    console.log(`[TaskService] 发现 ${middleFiles.length} 个 _middle.json 文件:`, middleFiles);
+
+    // 2. 读取所有 _middle.json，提取 pdf_info 或 LayoutPage
+    const allPages: LayoutPage[] = [];
+    for (const fileName of middleFiles) {
+      const filePath = await join(outputPath, fileName);
+      let content: string;
+      try {
+        content = await readTextFile(filePath);
+      } catch (e) {
+        console.error(`[TaskService] 读取失败: ${fileName}`, e);
+        continue;
+      }
+
+      let json: any;
+      try {
+        json = JSON.parse(content);
+      } catch (e) {
+        console.error(`[TaskService] JSON 解析失败: ${fileName}`, e);
+        continue;
+      }
+
+      // 支持两种结构：
+      //   { "pdf_info": [LayoutPage, ...] }   — 单个文件包含多页
+      //   { ...LayoutPage }                   — 单个文件是一页
+      if (json && typeof json === "object") {
+        if (Array.isArray(json.pdf_info)) {
+          for (const page of json.pdf_info) {
+            if (page && typeof page.page_idx === "number") {
+              allPages.push(page as LayoutPage);
+            }
+          }
+        } else if (typeof json.page_idx === "number") {
+          allPages.push(json as LayoutPage);
+        }
+      }
+    }
+
+    if (allPages.length === 0) {
+      console.warn(`[TaskService] 所有 _middle.json 均无有效页面数据，生成空 block_list.json`);
+      await writeFile(blockListPath, new TextEncoder().encode(JSON.stringify({ pdfData: [], mergeConnections: [] }, null, 2)));
+      return;
+    }
+
+    // 3. 按 page_idx 排序
+    allPages.sort((a, b) => a.page_idx - b.page_idx);
+    console.log(`[TaskService] 共收集 ${allPages.length} 个页面，页码范围 0-${allPages[allPages.length - 1].page_idx}`);
+
+    // 4. 转换为 BlockListData
+    const result: BlockListData = convertLayoutToBlocks(allPages);
+
+    // 5. 写入 block_list.json
+    const jsonStr = JSON.stringify(result, null, 2);
+    await writeFile(blockListPath, new TextEncoder().encode(jsonStr));
+    console.log(`[TaskService] block_list.json 已生成: ${blockListPath} (${jsonStr.length} 字节, ${result.pdfData.length} 页)`);
   }
 
   /**
