@@ -11,6 +11,11 @@ interface LayoutSpan {
   type: string
   content: string
   score: number
+  // image_body / chart_body 的 span 携带 image_path（图片相对路径）
+  // table_body 的 span 携带 html（表格 HTML 源码）与 image_path（表格截图）
+  // 修复 table/chart 无法预览：这些字段必须从 span 中提取
+  image_path?: string
+  html?: string
 }
 
 interface LayoutLine {
@@ -59,6 +64,8 @@ const TYPE_MAP: Record<string, string> = {
   code_caption:       'code_caption',
   chart:              'chart',
   chart_caption:      'chart_caption',
+  // 修复 chart 无法预览：chart_body 子块需映射为 chart，使 BlockContentRenderer 能按 chart 类型渲染
+  chart_body:         'chart',
   seal:               'seal',
   image_body:         'image',
   image_caption:      'image_caption',
@@ -120,6 +127,22 @@ function flattenText(lines: LayoutLine[]): string {
   return texts.join('\n')
 }
 
+// 修复 table/chart/image 无法预览：
+// image_body / chart_body 块的图片路径存储在 span.image_path，
+// table_body 块的 HTML 源码存储在 span.html。
+// 这些字段不在父块上，必须从 lines → spans 中提取。
+function extractSpanField(lines: LayoutLine[], field: 'image_path' | 'html'): string | undefined {
+  if (!lines || lines.length === 0) return undefined
+  for (const line of lines) {
+    if (!line.spans || line.spans.length === 0) continue
+    for (const span of line.spans) {
+      const v = (span as any)[field]
+      if (v && typeof v === 'string' && v.length > 0) return v
+    }
+  }
+  return undefined
+}
+
 function getDiscardedIndex(type: string): number {
   if (type === 'header') return HEADER_INDEX
   if (type === 'footer') return FOOTER_INDEX
@@ -137,6 +160,12 @@ function convertSingleBlock(
   const mappedType = TYPE_MAP[block.type] || block.type
   const text = flattenText(block.lines || [])
 
+  // 修复 table/chart/image 无法预览：
+  // 优先使用 block 自身的 img_path / table_body 字段（部分数据源直接放在父块上）；
+  // 若缺失，则从 lines → spans 中提取（image_body/chart_body 的 image_path，table_body 的 html）。
+  const imgPathFromSpans = extractSpanField(block.lines || [], 'image_path')
+  const tableHtmlFromSpans = extractSpanField(block.lines || [], 'html')
+
   return {
     id: crypto.randomUUID(),
     type: mappedType,
@@ -153,10 +182,10 @@ function convertSingleBlock(
     angle: block.angle ?? 0,
     color: getBlockColor(mappedType),
     level: block.level,
-    img_path: block.img_path,
+    img_path: block.img_path || imgPathFromSpans,
     img_caption: block.img_caption,
     img_footnote: block.img_footnote,
-    table_body: block.table_body,
+    table_body: block.table_body || tableHtmlFromSpans,
     table_caption: block.table_caption,
     table_footnote: block.table_footnote,
     latex: block.latex,
@@ -179,9 +208,12 @@ function convertBlocksForPage(
 
     if (block.blocks && block.blocks.length > 0) {
       mainBlock.is_container = true
+      // 先收集子块转换结果，便于后续将子块数据向上回填到父块
+      const convertedSubs: BlockData[] = []
       for (const subBlock of block.blocks) {
         const converted = convertSingleBlock(subBlock, pageIdx, pageSize, isDiscarded)
         converted.parent_id = mainBlock.id
+        // 旧逻辑：父块字段向下兜底（保留以兼容数据直接放在父块上的情况）
         if (block.type === 'image') {
           converted.img_path = converted.img_path || block.img_path
           converted.img_caption = converted.img_caption || block.img_caption
@@ -192,7 +224,36 @@ function convertBlocksForPage(
           converted.table_caption = converted.table_caption || block.table_caption
           converted.table_footnote = converted.table_footnote || block.table_footnote
         }
+        convertedSubs.push(converted)
         result.push(converted)
+      }
+
+      // 修复 table/chart/image 无法预览：
+      // 当父块本身缺少 img_path / table_body 时，从子块（image_body/chart_body/table_body）
+      // 提取的数据向上回填到父块，使父块在 BlockContentRenderer 中能正确渲染图片与表格。
+      if (block.type === 'image' || block.type === 'chart') {
+        if (!mainBlock.img_path) {
+          const subWithImg = convertedSubs.find((s) => s.img_path)
+          if (subWithImg) mainBlock.img_path = subWithImg.img_path
+        }
+        if (!mainBlock.img_caption) {
+          const capSub = convertedSubs.find((s) => s.type === 'image_caption' || s.type === 'chart_caption')
+          if (capSub && capSub.text) mainBlock.img_caption = capSub.text
+        }
+      }
+      if (block.type === 'table') {
+        if (!mainBlock.table_body) {
+          const subWithBody = convertedSubs.find((s) => s.table_body)
+          if (subWithBody) mainBlock.table_body = subWithBody.table_body
+        }
+        if (!mainBlock.table_caption) {
+          const capSub = convertedSubs.find((s) => s.type === 'table_caption')
+          if (capSub && capSub.text) mainBlock.table_caption = capSub.text
+        }
+        if (!mainBlock.table_footnote) {
+          const fnSub = convertedSubs.find((s) => s.type === 'table_footnote')
+          if (fnSub && fnSub.text) mainBlock.table_footnote = fnSub.text
+        }
       }
     }
   }

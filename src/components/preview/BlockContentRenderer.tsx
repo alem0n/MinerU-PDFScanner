@@ -51,10 +51,13 @@ function RenderImage({ block, imageBasePath }: BlockContentRendererProps) {
 
 function RenderChart({ block, theme, imageBasePath, hideCopyButton }: BlockContentRendererProps) {
   if (block.img_path) {
+    // 修复 chart 无法预览：img_path 现在从 chart_body 子块提取并回填到父块
+    // chart_caption 子块的文本同样回填到 img_caption，优先使用 img_caption 作为图注
+    const caption = block.img_caption || block.text
     return (
       <figure className="block-figure">
-        <LazyImage src={normalizeImgPath(block.img_path)} alt="chart" imageBasePath={imageBasePath} />
-        {block.text && <figcaption className="block-figcaption">{block.text}</figcaption>}
+        <LazyImage src={normalizeImgPath(block.img_path)} alt={caption || 'chart'} imageBasePath={imageBasePath} />
+        {caption && <figcaption className="block-figcaption">{caption}</figcaption>}
       </figure>
     )
   }
