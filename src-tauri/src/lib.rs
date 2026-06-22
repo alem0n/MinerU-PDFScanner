@@ -214,6 +214,85 @@ fn list_files_recursive(dir: &PathBuf) -> Vec<String> {
     files
 }
 
+/// 将 source_dir 目录下的所有文件递归打包为 ZIP 文件，保存到 output_path
+#[tauri::command]
+fn zip_folder(source_dir: String, output_path: String) -> Result<String, String> {
+    let source_dir = PathBuf::from(&source_dir);
+    let output_path = PathBuf::from(&output_path);
+
+    // 确保源目录存在
+    if !source_dir.exists() {
+        return Err(format!("源目录不存在: {}", source_dir.display()));
+    }
+    if !source_dir.is_dir() {
+        return Err(format!("源路径不是目录: {}", source_dir.display()));
+    }
+
+    // 创建输出文件所在的父目录
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("无法创建输出目录: {}", e))?;
+    }
+
+    let file = File::create(&output_path).map_err(|e| format!("无法创建ZIP文件: {}", e))?;
+    let mut zip = zip::ZipWriter::new(file);
+
+    let options = zip::write::FileOptions::<()>::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // 递归收集所有文件并写入 ZIP
+    zip_recursive(&mut zip, &source_dir, &source_dir, &options)?;
+
+    zip.finish().map_err(|e| format!("无法完成ZIP打包: {}", e))?;
+
+    println!("[zip_folder] 打包完成: {} -> {}", source_dir.display(), output_path.display());
+    Ok(output_path.to_string_lossy().to_string())
+}
+
+/// 递归遍历目录，将所有文件添加到 ZIP 归档中
+fn zip_recursive(
+    zip: &mut zip::ZipWriter<std::fs::File>,
+    base_dir: &PathBuf,
+    current_dir: &PathBuf,
+    options: &zip::write::FileOptions<()>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(current_dir).map_err(|e| format!("无法读取目录: {}", e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // 跳过临时文件
+        if let Some(name) = path.file_name() {
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with('.') {
+                continue;
+            }
+        }
+
+        let relative = path
+            .strip_prefix(base_dir)
+            .map_err(|e| format!("路径错误: {}", e))?
+            .to_string_lossy()
+            .to_string()
+            .replace('\\', "/"); // 统一为 / 分隔符
+
+        if path.is_dir() {
+            // 添加目录条目（末尾加 /）
+            zip.add_directory(&format!("{}/", relative), *options)
+                .map_err(|e| format!("无法添加目录: {}", e))?;
+            zip_recursive(zip, base_dir, &path, options)?;
+        } else {
+            zip.start_file(&relative, *options)
+                .map_err(|e| format!("无法添加文件 {}: {}", relative, e))?;
+            let mut f = File::open(&path).map_err(|e| format!("无法打开文件 {}: {}", relative, e))?;
+            let mut buffer = Vec::new();
+            f.read_to_end(&mut buffer)
+                .map_err(|e| format!("无法读取文件 {}: {}", relative, e))?;
+            zip.write_all(&buffer)
+                .map_err(|e| format!("无法写入ZIP条目 {}: {}", relative, e))?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -243,7 +322,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![greet, get_db_path, unzip_file])
+        .invoke_handler(tauri::generate_handler![greet, get_db_path, unzip_file, zip_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

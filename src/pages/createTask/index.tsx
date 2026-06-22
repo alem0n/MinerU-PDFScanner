@@ -369,7 +369,7 @@ export function Component() {
       const tasks = await taskService.submitBatch([selectedFile], params);
       const task = tasks[0];
 
-      if (task && task.status !== TaskStatus.Failed) {
+      if (task && task.state !== TaskStatus.Failed) {
         console.log(
           `[CreateTask] 任务创建成功: task_id="${task.task_id}", file="${task.file_name}"`,
         );

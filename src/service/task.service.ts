@@ -534,6 +534,80 @@ export class TaskService {
   }
 
   /**
+   * 将已完成任务的本地输出文件夹打包为 ZIP，保存到设置的下载目录。
+   *
+   * 使用 Rust `zip_folder` 命令递归打包任务输出目录，然后写入
+   * config 中 downloadDir 指定的目录（若未配置则弹出保存对话框）。
+   *
+   * @param task 已完成的任务（须有 unzip_file_output_path）
+   * @returns    保存的 ZIP 文件路径，失败时返回 null
+   */
+  async zipLocalFolder(task: Task): Promise<string | null> {
+    const outputPath = task.unzip_file_output_path;
+    if (!outputPath) {
+      Notification.warning({
+        title: "打包失败",
+        content: "任务输出目录不存在，请重新下载",
+        duration: 3,
+      });
+      return null;
+    }
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { join } = await import("@tauri-apps/api/path");
+
+      const config = await configService.get();
+      const fileNameBase = task.file_name.replace(/\.[^/.]+$/, "");
+      const taskIdShort = task.task_id.length > 8 ? task.task_id.slice(0, 8) : task.task_id;
+      const zipFileName = `${fileNameBase}_${taskIdShort}.zip`;
+
+      if (config.downloadDir) {
+        // ---- 有配置下载目录：直接写入 ----
+        const savePath = await join(config.downloadDir, zipFileName);
+        console.log(`[TaskService] 本地打包开始: ${outputPath} -> ${savePath}`);
+
+        await invoke<string>("zip_folder", {
+          sourceDir: outputPath,
+          outputPath: savePath,
+        });
+
+        console.log(`[TaskService] 本地打包完成: ${savePath}`);
+        return savePath;
+      } else {
+        // ---- 未配置下载目录：弹出保存对话框 ----
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const savePath = await save({
+          defaultPath: zipFileName,
+          filters: [{ name: "ZIP 文件", extensions: ["zip"] }],
+        });
+
+        if (!savePath) {
+          console.log(`[TaskService] 用户取消了保存对话框`);
+          return null;
+        }
+
+        console.log(`[TaskService] 本地打包开始: ${outputPath} -> ${savePath}`);
+        await invoke<string>("zip_folder", {
+          sourceDir: outputPath,
+          outputPath: savePath,
+        });
+
+        console.log(`[TaskService] 本地打包完成: ${savePath}`);
+        return savePath;
+      }
+    } catch (error) {
+      console.error(`[TaskService] 本地打包失败:`, error);
+      Notification.error({
+        title: "打包失败",
+        content: `文件：${task.file_name} 本地打包失败，请稍后重试`,
+        duration: 5,
+      });
+      return null;
+    }
+  }
+
+  /**
    * 将文件内容保存到本地磁盘。
    *
    * 两种保存模式：

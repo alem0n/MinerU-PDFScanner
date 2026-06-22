@@ -74,19 +74,18 @@ export function Component() {
   const needsPolling = status === TaskStatus.Pending || status === TaskStatus.Processing;
 
   /**
-   * 当前正在下载的任务 ID（用于按钮 loading 状态展示）
+   * 当前正在打包的任务 ID（用于按钮 loading 状态展示）
    */
-  const [downloadingTaskId, setDownloadingTaskId] = useState<string | null>(null);
+  const [packingTaskId, setPackingTaskId] = useState<string | null>(null);
 
   /**
-   * 手动下载任务结果 ZIP。
-   * 未配置 downloadDir 时会弹出系统保存对话框。
+   * 将已完成任务的本地输出文件夹打包为 ZIP 并保存到下载目录。
    */
-  const handleDownload = useCallback(async (task: Task) => {
-    setDownloadingTaskId(task.task_id);
+  const handleLocalZip = useCallback(async (task: Task) => {
+    setPackingTaskId(task.task_id);
     try {
-      console.log(`[TaskList] 开始下载任务 ${task.task_id} (${task.file_name})`);
-      const path = await taskService.downloadAndSave(task);
+      console.log(`[TaskList] 开始本地打包 ${task.task_id} (${task.file_name})`);
+      const path = await taskService.zipLocalFolder(task);
       if (path) {
         Toast.success({
           content: `结果已保存到 ${path}`,
@@ -94,7 +93,7 @@ export function Component() {
         });
       }
     } finally {
-      setDownloadingTaskId(null);
+      setPackingTaskId(null);
     }
   }, []);
 
@@ -173,7 +172,7 @@ export function Component() {
                 <div>
                   {StatusMap[item.state] ?? (
                     <Tag size="large" color="blue">
-                      {item.status}
+                      {item.state}
                     </Tag>
                   )}
                   <QueueInfo taskId={item.task_id} status={item.state} />
@@ -182,22 +181,24 @@ export function Component() {
             }
             extra={
               <ButtonGroup theme="borderless">
-                <Button
-                  onClick={() => navigate(`/task/preview/${item.task_id}`)}
-                >
-                  预览
-                </Button>
-                {item.status === TaskStatus.Processing && <Button>取消</Button>}
-                {item.status === TaskStatus.Failed && <Button>重试</Button>}
-                {item.status === TaskStatus.Completed && (
+                {item.state === TaskStatus.Completed && (
                   <Button
-                    onClick={() => handleDownload(item)}
-                    loading={downloadingTaskId === item.task_id}
+                    onClick={() => navigate(`/task/preview/${item.task_id}`)}
+                  >
+                    预览
+                  </Button>
+                )}
+                {item.state === TaskStatus.Processing && <Button>取消</Button>}
+                {item.state === TaskStatus.Failed && <Button>重试</Button>}
+                {item.state === TaskStatus.Completed && (
+                  <Button
+                    onClick={() => handleLocalZip(item)}
+                    loading={packingTaskId === item.task_id}
                   >
                     下载
                   </Button>
                 )}
-                {item.status === TaskStatus.Completed && (
+                {item.state === TaskStatus.Completed && (
                   <Button
                     onClick={() => handleDelete(item)}
                     loading={deletingTaskId === item.task_id}
