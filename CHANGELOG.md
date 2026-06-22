@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.1](https://github.com/alem0n/MinerU-PDFScanner/compare/v0.6.0...v0.6.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* tauri-action 使用 PAT 上传 Release 资产 ([addfa69](https://github.com/alem0n/MinerU-PDFScanner/commit/addfa690e45ec98c8db0792ff4d77e05ac2d52f7))
+* 关闭 updater 签名，TAURI_SIGNING_PRIVATE_KEY 未配置 ([82282cb](https://github.com/alem0n/MinerU-PDFScanner/commit/82282cb395e90229ea072d1a54c38ab32484b010))
+* 同时检查 WINDOWS_CERTIFICATE_PASSWORD 是否为空 ([9ef9a7a](https://github.com/alem0n/MinerU-PDFScanner/commit/9ef9a7a899de2ba5db54e311125bdf3682f867e3))
+* 未配置 Windows 证书时跳过代码签名步骤 ([661e58f](https://github.com/alem0n/MinerU-PDFScanner/commit/661e58f6059339d1c22fda8c8d2be5d439a87565))
+* 移除 if 中 secrets 引用，改用 try-catch 跳过证书导入 ([eff16dc](https://github.com/alem0n/MinerU-PDFScanner/commit/eff16dc5fef2abe5e41be1aa074cbb2371dbd86c))
+* 移除无用的签名 env 变量和证书时间戳配置 ([d2f8c0d](https://github.com/alem0n/MinerU-PDFScanner/commit/d2f8c0d9fc4b932ed641c9d15013fdcc6dc5e573))
+* 移除硬编码的证书指纹，解决 signtool 签名失败 ([697e7c6](https://github.com/alem0n/MinerU-PDFScanner/commit/697e7c6b93e6ddaaab7593c65182ac4e8ad6f363))
+
 ## [0.6.0](https://github.com/alem0n/MinerU-PDFScanner/compare/v0.5.0...v0.6.0) (2026-06-22)
 
 
