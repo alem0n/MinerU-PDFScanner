@@ -22,6 +22,8 @@ export interface EditorStore {
   editedBlocks: Record<string, EditedBlock>
   activeBlockId: string | null
   activeBlockSource: 'pdf' | 'markdown' | null
+  currentPage: number
+  currentPageSource: 'pdf' | 'markdown' | null
 
   setLayerData: (data: BlockData[][]) => void
   setEditInfo: (info: EditInfo | null) => void
@@ -29,6 +31,7 @@ export interface EditorStore {
   updateBlockContent: (blockPosition: string, newContent: string) => void
   setActiveBlockId: (id: string | null, source?: 'pdf' | 'markdown') => void
   markEdited: (blockPosition: string) => void
+  setCurrentPage: (page: number, source?: 'pdf' | 'markdown') => void
 }
 
 export const useEditorStore = create<EditorStore>()((set, get) => ({
@@ -37,6 +40,8 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
   editedBlocks: {},
   activeBlockId: null,
   activeBlockSource: null,
+  currentPage: 1,
+  currentPageSource: null,
 
   setLayerData: (data: BlockData[][]) => {
     logger.info(`setLayerData: ${data.length} pages, ${data.reduce((s, p) => s + p.length, 0)} blocks`)
@@ -105,5 +110,15 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
         },
       },
     }))
+  },
+
+  setCurrentPage: (page: number, source?: 'pdf' | 'markdown') => {
+    set((state) => {
+      if (state.currentPage === page && state.currentPageSource === (source ?? null)) return {}
+      if (page) {
+        logger.info(`setCurrentPage: ${page} from "${source || 'unknown'}"`)
+      }
+      return { currentPage: page, currentPageSource: source ?? null }
+    })
   },
 }))

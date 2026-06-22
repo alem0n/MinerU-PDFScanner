@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ControlBar } from '@/components/preview/ControlBar'
 import { SplitPane } from '@/components/preview/SplitPane'
 import { MainMarkdownViewer } from '@/components/preview/MainMarkdownViewer'
@@ -7,6 +7,7 @@ import { BuildJsonViewer } from '@/components/preview/JsonViewer'
 import { ChemViewer } from '@/components/preview/ChemViewer'
 import { PdfPanel } from '@/components/preview/PdfViewer'
 import { useUIStore, type PreviewViewType } from '@/stores/uiStore'
+import { useTranslateStore } from '@/stores/translateStore'
 import type { TaskData, BlockData, MergeConnection } from '@/shared/types'
 import { TASK_PROCESSING_STATES } from '@/shared/types'
 import { useMarkdownTheme } from '@/hooks/useMarkdownTheme'
@@ -36,6 +37,14 @@ export function PreviewPage({
 }: PreviewPageProps) {
   const { theme } = useMarkdownTheme()
   const [showPdfOverlay, setShowPdfOverlay] = useState(true)
+  const clearAllTranslations = useTranslateStore((s) => s.clearAll)
+
+  /** 切换任务/路由时清空翻译状态, 避免跨任务污染 */
+  useEffect(() => {
+    return () => {
+      clearAllTranslations()
+    }
+  }, [clearAllTranslations])
 
   if (loading) {
     return (

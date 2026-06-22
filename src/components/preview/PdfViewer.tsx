@@ -64,6 +64,7 @@ export function PdfPanel({ task, type, blockData, showOverlay, onToggleShowLayou
   const activeBlockId = useEditorStore((s) => s.activeBlockId)
   const activeBlockSource = useEditorStore((s) => s.activeBlockSource)
   const setActiveBlockId = useEditorStore((s) => s.setActiveBlockId)
+  const setCurrentPage = useEditorStore((s) => s.setCurrentPage)
   const [pageInputValue, setPageInputValue] = useState<string>('')
   const [pageInputError, setPageInputError] = useState(false)
 
@@ -224,6 +225,7 @@ export function PdfPanel({ task, type, blockData, showOverlay, onToggleShowLayou
 
       if (foundViewportPage !== viewportPage) {
         setViewportPage(foundViewportPage)
+        setCurrentPage(foundViewportPage, 'pdf')
       }
     })
   }, [pageInfos, totalPages, viewportPage])

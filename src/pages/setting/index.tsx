@@ -1,14 +1,29 @@
 import { Page } from "@/components/Page";
 import { Config, configService } from "@/service/config.service";
-import { Form, Button, Card, Toast } from "@douyinfe/semi-ui";
+import { translateService, TranslateConfig, DEFAULT_TRANSLATE_CONFIG } from "@/service/translate.service";
+import { PROVIDERS, TARGET_LANGS, SOURCE_LANGS } from "@/translate";
+import type { ApiType } from "@/translate";
+import { Form, Button, Card, Toast, Select } from "@douyinfe/semi-ui";
 import { useRequest } from "ahooks";
 import { useLoaderData } from "react-router-dom";
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { UpdateChecker } from "@/lib/updater";
 
 export function Component() {
   const data = useLoaderData() as Config;
   const formRef = useRef<any>(null);
+  const translateFormRef = useRef<any>(null);
+  const [translateConfig, setTranslateConfig] = useState<TranslateConfig>(DEFAULT_TRANSLATE_CONFIG);
+
+  /** 加载翻译配置 */
+  useEffect(() => {
+    translateService.getConfig().then((cfg) => {
+      setTranslateConfig(cfg);
+      if (translateFormRef.current) {
+        translateFormRef.current.formApi.setValues(cfg);
+      }
+    });
+  }, []);
 
   /**
    * 选择下载目录：调用 Tauri 原生文件夹选择器
@@ -65,6 +80,30 @@ export function Component() {
       },
     },
   );
+
+  /** 保存翻译配置 */
+  const translateSetReq = useRequest(
+    (config: TranslateConfig) => translateService.saveConfig(config),
+    {
+      manual: true,
+      onSuccess() {
+        Toast.success("翻译配置保存成功");
+      },
+    },
+  );
+
+  /** 选择服务商时自动填入默认 URL/Model */
+  const handleProviderChange = useCallback((value: any) => {
+    const apiType = value as ApiType;
+    const defaults = translateService.applyProviderDefaults(apiType, translateConfig);
+    if (translateFormRef.current) {
+      translateFormRef.current.formApi.setValue("apiType", apiType);
+      translateFormRef.current.formApi.setValue("apiUrl", defaults.apiUrl);
+      translateFormRef.current.formApi.setValue("model", defaults.model);
+    }
+    setTranslateConfig((prev) => ({ ...prev, apiType, apiUrl: defaults.apiUrl, model: defaults.model }));
+  }, [translateConfig]);
+
   console.log("data", data);
   return (
     <Page>
@@ -116,6 +155,117 @@ export function Component() {
           <span className="text-gray-600">检查并安装最新版本</span>
           <UpdateChecker autoCheck={false} showButton />
         </div>
+      </Card>
+      <Card title="翻译设置" className="w-full mt-4">
+        <Form
+          ref={translateFormRef}
+          onSubmit={(values) => {
+            translateSetReq.run(values as TranslateConfig);
+          }}
+          initValues={translateConfig}
+          layout="vertical"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-gray-600">启用翻译功能</span>
+            <Form.Switch field="enabled" noLabel />
+          </div>
+          <Form.Select
+            field="apiType"
+            label="翻译服务商"
+            style={{ width: '100%' }}
+            onChange={handleProviderChange}
+          >
+            {PROVIDERS.map((p) => (
+              <Select.Option key={p.apiType} value={p.apiType}>
+                {p.label}
+              </Select.Option>
+            ))}
+          </Form.Select>
+          <Form.Input
+            field="apiUrl"
+            label="API URL"
+            trigger="blur"
+            placeholder="https://api.example.com/v1/chat/completions"
+          />
+          <Form.Input
+            field="apiKey"
+            label="API Key"
+            trigger="blur"
+            type="password"
+            placeholder="sk-..."
+            extraText="API Key 仅存储在本机, 不会上传到任何服务器"
+          />
+          <Form.Input
+            field="model"
+            label="模型名称"
+            trigger="blur"
+            placeholder="deepseek-chat"
+          />
+          <div className="flex gap-4">
+            <Form.Select
+              field="sourceLang"
+              label="源语言"
+              style={{ width: '50%' }}
+            >
+              {SOURCE_LANGS.map(([code, label]) => (
+                <Select.Option key={code} value={code}>{label}</Select.Option>
+              ))}
+            </Form.Select>
+            <Form.Select
+              field="targetLang"
+              label="目标语言"
+              style={{ width: '50%' }}
+            >
+              {TARGET_LANGS.map(([code, label]) => (
+                <Select.Option key={code} value={code}>{label}</Select.Option>
+              ))}
+            </Form.Select>
+          </div>
+          <div className="flex gap-4">
+            <Form.InputNumber
+              field="concurrency"
+              label="并发数"
+              min={1}
+              max={10}
+              style={{ width: '50%' }}
+              extraText="同时发送的翻译请求数"
+            />
+            <Form.InputNumber
+              field="retryTimes"
+              label="重试次数"
+              min={0}
+              max={5}
+              style={{ width: '50%' }}
+            />
+          </div>
+          <div className="flex gap-4">
+            <Form.InputNumber
+              field="timeoutMs"
+              label="超时 (毫秒)"
+              min={5000}
+              max={120000}
+              step={5000}
+              style={{ width: '50%' }}
+            />
+            <Form.InputNumber
+              field="maxChunkChars"
+              label="超长分段阈值 (字符)"
+              min={500}
+              max={10000}
+              step={500}
+              style={{ width: '50%' }}
+              extraText="超过此长度的文本块将分段翻译"
+            />
+          </div>
+          <Button
+            type="primary"
+            loading={translateSetReq.loading}
+            className="mt-2"
+            htmlType="submit"
+          >
+            保存翻译配置
+          </Button>
+        </Form>
       </Card>
     </Page>
   );
