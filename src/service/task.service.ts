@@ -192,7 +192,7 @@ export class TaskService {
           id: crypto.randomUUID(),
           task_id: response.task_id,
           file_name: file.name,
-          type: '',
+          type: params.backend || 'hybrid-engine',
           state: TaskStatus.Pending,
           createdAt: Date.now(),
           full_md_link: '',
@@ -211,13 +211,13 @@ export class TaskService {
           retry_time: 0,
           unzip_file_path: '',
           unzip_file_output_path: '',
-          origin_file_path: '',
+          origin_file_path: fileItem.path || '',
           createDate: '',
           model_version: 'v1',
           cover_path: '',
           chem: '',
           is_chem: false,
-          file_size: 0,
+          file_size: file.size,
           rank: 0,
           can_retry: false,
           is_expire: false,
@@ -241,7 +241,7 @@ export class TaskService {
           id: crypto.randomUUID(),
           task_id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           file_name: fileItem.name,
-          type: '',
+          type: params.backend || 'hybrid-engine',
           state: TaskStatus.Failed,
           createdAt: Date.now(),
           full_md_link: '',
@@ -260,13 +260,13 @@ export class TaskService {
           retry_time: 0,
           unzip_file_path: '',
           unzip_file_output_path: '',
-          origin_file_path: '',
+          origin_file_path: fileItem.path || '',
           createDate: '',
           model_version: 'v1',
           cover_path: '',
           chem: '',
           is_chem: false,
-          file_size: 0,
+          file_size: fileItem.size,
           rank: 0,
           can_retry: false,
           is_expire: false,
@@ -317,6 +317,18 @@ export class TaskService {
       try {
         const statusResponse = await apiClient.getTaskStatus(task.task_id);
         const currentStatus = statusResponse.status;
+
+        // ---- H2: 同步后端返回字段到本地 DB（每次轮询更新，在 state 写盘时一并持久化） ----
+        if (statusResponse.backend) {
+          task.model_version = statusResponse.backend;
+        }
+        if (statusResponse.created_at) {
+          task.createDate = statusResponse.created_at;
+        }
+        if (statusResponse.result_url) {
+          task.full_md_link = statusResponse.result_url;
+          task.full_zip_url = statusResponse.result_url;
+        }
 
         // ---- F.2: 提取 queued_ahead 并记录变化 ----
         const queuedAhead = statusResponse.queued_ahead ?? 0;
@@ -465,6 +477,7 @@ export class TaskService {
     clearCache("tasks_" + TaskStatus.Failed);
 
     task.state = TaskStatus.Failed;
+    task.err_msg = errorMsg;
     await this.taskRepository.update(task);
 
     Notification.error({
