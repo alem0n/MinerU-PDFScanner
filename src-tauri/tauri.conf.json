@@ -20,7 +20,6 @@
     "copyright": "2024 liuhuapiaoyuan",
     "windows": {
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.comodoca.com",
       "wix": {
         "language": "zh-CN"
       },
