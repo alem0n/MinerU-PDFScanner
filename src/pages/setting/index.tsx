@@ -27,6 +27,35 @@ export function Component() {
     }
   }, []);
 
+  /**
+   * 选择缓存目录：调用 Tauri 原生文件夹选择器
+   * 如果旧缓存目录中存在文件，弹出警告提示用户手动迁移
+   */
+  const handleSelectCacheDir = useCallback(async () => {
+    try {
+      const { open, message } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, multiple: false });
+      if (selected && typeof selected === "string" && formRef.current) {
+        // 获取当前旧的缓存目录值
+        const oldCacheDir = formRef.current.formApi.getValue("cacheDir");
+        if (oldCacheDir && oldCacheDir !== selected) {
+          // 检查旧目录是否有内容
+          const hasContent = await configService.checkDirHasContent(oldCacheDir);
+          if (hasContent) {
+            await message(
+              `旧缓存目录中存在文件，请手动将文件迁移到新目录：\n\n${selected}`,
+              { title: "缓存目录变更", kind: "warning", okLabel: "我知道了" },
+            );
+          }
+        }
+        formRef.current.formApi.setValue("cacheDir", selected);
+        console.log("[Setting] 缓存目录已选择:", selected);
+      }
+    } catch (error) {
+      console.warn("[Setting] 目录选择器不可用（非 Tauri 环境）:", error);
+    }
+  }, []);
+
   const configSetReq = useRequest(
     (config: Config) => configService.set(config),
     {
@@ -49,7 +78,17 @@ export function Component() {
           layout="vertical"
         >
           <Form.Input field="baseUrl" label="后端服务地址" trigger="blur" placeholder="http://127.0.0.1:8080" />
-          <Form.Input field="cacheDir" label="缓存目录" trigger="blur" />
+          <Form.Input
+            field="cacheDir"
+            label="缓存目录"
+            trigger="blur"
+            suffix={
+              <Button onClick={handleSelectCacheDir} type="secondary" size="small">
+                选择目录
+              </Button>
+            }
+            extraText="修改缓存目录后，旧目录中的缓存文件需手动迁移"
+          />
           <Form.Input
             field="downloadDir"
             label="下载目录"

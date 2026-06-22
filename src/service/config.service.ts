@@ -1,6 +1,7 @@
 import { SettingsStore } from "@/lib/storage";
 import { appDataDir } from "@tauri-apps/api/path";
 import { clearCache } from "ahooks";
+import { readDir } from "@tauri-apps/plugin-fs";
 
 export type Config = {
     /**
@@ -35,6 +36,20 @@ export class ConfigService {
             baseUrl: "http://127.0.0.1:8080",
             cacheDir: appData
         }, data)
+    }
+
+    /**
+     * 检查指定目录下是否有文件（排除 . 和 ..）
+     * 用于修改缓存目录时，提示用户旧缓存中有内容
+     */
+    async checkDirHasContent(dir: string): Promise<boolean> {
+        try {
+            const entries = await readDir(dir);
+            return entries.length > 0;
+        } catch {
+            // 目录不存在或无法读取，视为无内容
+            return false;
+        }
     }
 
     set(config: Config) {
