@@ -36,16 +36,28 @@ export function ControlBar({ task, loading, onBack, onOpenFolder }: ControlBarPr
 
   /** 翻译全文按钮点击 */
   const handleTranslateAll = useCallback(async () => {
+    logger.info(`[全文翻译] 按钮点击: sessionActive=${sessionActive}, currentPage=${currentPage}, batchStatus=${batchStatus}, viewType=${viewType}`)
     if (sessionActive) {
+      logger.info(`[全文翻译] 会话已激活, 执行停止操作`)
       stopSession()
       return
     }
-    if (!(await translateService.isConfigured())) {
+    const configured = await translateService.isConfigured()
+    logger.info(`[全文翻译] isConfigured检查: ${configured}`)
+    if (!configured) {
       Toast.warning('请先在设置中配置翻译引擎')
       return
     }
-    startWindowTranslate(currentPage)
-  }, [sessionActive, stopSession, startWindowTranslate, currentPage])
+    logger.info(`[全文翻译] 启动窗口翻译, 起始页=${currentPage}`)
+    const result = startWindowTranslate(currentPage)
+    if (result && typeof result.then === 'function') {
+      result.then((res: any) => {
+        logger.info(`[全文翻译] startWindowTranslate返回: configured=${res?.configured}`)
+      }).catch((err: any) => {
+        logger.error(`[全文翻译] startWindowTranslate异常:`, err)
+      })
+    }
+  }, [sessionActive, stopSession, startWindowTranslate, currentPage, batchStatus, viewType])
 
   const translateButtonLabel = !sessionActive
     ? '翻译全文'

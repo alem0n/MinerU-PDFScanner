@@ -196,6 +196,10 @@ export class OpenAICompatibleEngine implements TranslationEngine {
   async translate(input: TranslateRequest): Promise<TranslateResult[]> {
     const { texts, sourceLang, targetLang, config, signal, docInfo, tone, glossary } = input
 
+    logger.info(`[engine.translate] ═══ 进入 ═══ texts.length=${texts.length}, targetLang=${targetLang}, sourceLang=${sourceLang}, apiType=${config.apiType}, model=${config.model}, useBatchFetch=${config.useBatchFetch}`)
+    logger.info(`[engine.translate] apiUrl=${config.apiUrl}, apiKey=${config.apiKey ? '已设置(长度' + config.apiKey.length + ')' : '未设置'}`)
+    logger.info(`[engine.translate] texts预览: "${texts[0]?.slice(0, 60)}..."`)
+
     if (!config.apiUrl) throw new TranslateError('翻译引擎未配置 API URL', 'config')
     if (!config.apiKey && config.apiType !== 'Ollama') {
       throw new TranslateError('翻译引擎未配置 API Key', 'config')
@@ -231,6 +235,9 @@ export class OpenAICompatibleEngine implements TranslationEngine {
       docInfo,
     })
 
+    logger.info(`[engine.translate] 提示词构建完成: systemPrompt长度=${systemPrompt.length}, userPrompt长度=${userPrompt.length}, systemPrompt预览="${systemPrompt.slice(0, 80)}..."`)
+    logger.info(`[engine.translate] userPrompt预览="${userPrompt.slice(0, 80)}..."`)
+
     // 构建请求
     const { url, body, headers, userMsg } = genOpenAI({
       url: config.apiUrl,
@@ -248,16 +255,30 @@ export class OpenAICompatibleEngine implements TranslationEngine {
 
     const { init } = genInit({ url, body, headers, userMsg })
 
+    logger.info(`[engine.translate] 请求URL=${url}`)
+    logger.info(`[engine.translate] 请求body(序列化前): model=${body.model}, temperature=${body.temperature}, maxTokens=${body.max_tokens}, messages.length=${(body.messages as any[])?.length}`)
+    const bodyStr = JSON.stringify(body)
+    logger.info(`[engine.translate] 请求body大小=${bodyStr.length}字符`)
+
     // 发起请求
     let response: Response
     try {
+      logger.info(`[engine.translate] 开始fetch请求...`)
+      const fetchStart = Date.now()
       response = await fetch(url, init)
+      const fetchElapsed = Date.now() - fetchStart
+      logger.info(`[engine.translate] fetch请求完成: 耗时=${fetchElapsed}ms, status=${response.status}, statusText=${response.statusText}, ok=${response.ok}`)
     } catch (err: any) {
-      if (err?.name === 'AbortError') throw err
+      if (err?.name === 'AbortError') {
+        logger.warn(`[engine.translate] fetch被abort`)
+        throw err
+      }
+      logger.error(`[engine.translate] 网络请求失败: ${err?.message || err}`)
       throw new TranslateError(`网络请求失败: ${err?.message || err}`, 'network')
     }
 
     if (signal?.aborted) {
+      logger.warn(`[engine.translate] 收到信号后signal已aborted`)
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
@@ -279,37 +300,64 @@ export class OpenAICompatibleEngine implements TranslationEngine {
       // 尝试读取错误体
       try {
         const errBody = await response.text()
-        if (errBody) msg += `: ${errBody.slice(0, 200)}`
+        if (errBody) {
+          const truncated = errBody.slice(0, 500)
+          msg += `: ${truncated}`
+          logger.error(`[engine.translate] HTTP错误响应体: ${truncated}`)
+        }
       } catch { /* ignore */ }
+      logger.error(`[engine.translate] HTTP错误: code=${code}, status=${status}, msg="${msg.slice(0, 300)}"`)
       throw new TranslateError(msg, code, status)
     }
 
     // 解析响应
     let resJson: any
+    let rawText: string
     try {
-      resJson = await response.json()
+      logger.info(`[engine.translate] 开始解析响应JSON...`)
+      rawText = await response.text()
+      resJson = JSON.parse(rawText)
+      logger.info(`[engine.translate] 响应JSON解析成功: 原始大小=${rawText.length}字符`)
+      logger.info(`[engine.translate] 响应结构keys=${Object.keys(resJson).join(', ')}`)
+      if (resJson.usage) {
+        logger.info(`[engine.translate] token用量: ${JSON.stringify(resJson.usage)}`)
+      }
+      if (resJson.choices) {
+        logger.info(`[engine.translate] choices数量=${resJson.choices.length}`)
+        resJson.choices.forEach((c: any, i: number) => {
+          logger.info(`[engine.translate] choice[${i}]: finish_reason=${c.finish_reason}, content长度=${c.message?.content?.length || 0}`)
+        })
+      }
     } catch (err: any) {
+      logger.error(`[engine.translate] 响应JSON解析失败: ${err?.message || err}`)
       throw new TranslateError(`响应 JSON 解析失败: ${err?.message || err}`, 'parse')
     }
 
     if (signal?.aborted) {
+      logger.warn(`[engine.translate] 解析后signal已aborted`)
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
+    const parseStart = Date.now()
     const result = await parseTransRes(resJson, {
       useBatchFetch: config.useBatchFetch,
       apiType: config.apiType,
     })
+    logger.info(`[engine.translate] parseTransRes完成: 耗时=${Date.now() - parseStart}ms, 结果数=${result.length}`)
 
     if (!result || result.length === 0) {
+      logger.error(`[engine.translate] 未返回有效译文, 抛出empty错误`)
       throw new TranslateError('未返回有效译文', 'empty')
     }
 
     // 映射为 TranslateResult[]
-    return result.map(([text, detected]) => ({
+    const mapped = result.map(([text, detected]) => ({
       text: text || '',
       detectedSourceLang: detected || undefined,
     }))
+
+    logger.info(`[engine.translate] 翻译完成: 返回${mapped.length}条结果, 首条译文预览="${mapped[0]?.text?.slice(0, 60)}..."`)
+    return mapped
   }
 }
 

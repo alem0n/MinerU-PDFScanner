@@ -14,15 +14,22 @@ export function Component() {
   const formRef = useRef<any>(null);
   const translateFormRef = useRef<any>(null);
   const [translateConfig, setTranslateConfig] = useState<TranslateConfig>(DEFAULT_TRANSLATE_CONFIG);
+  /** 标记用户是否已手动修改过翻译表单（防止异步加载覆盖用户操作） */
+  const userModifiedFormRef = useRef(false);
 
-  /** 加载翻译配置 */
+  /** 加载翻译配置（仅初始化表单一次，用户修改表单后不再覆盖） */
   useEffect(() => {
     translateService.getConfig().then((cfg) => {
       setTranslateConfig(cfg);
-      if (translateFormRef.current) {
+      if (translateFormRef.current && !userModifiedFormRef.current) {
         translateFormRef.current.formApi.setValues(cfg);
       }
     });
+  }, []);
+
+  /** 表单值变化时标记用户已交互 */
+  const handleTranslateFormChange = useCallback(() => {
+    userModifiedFormRef.current = true;
   }, []);
 
   /**
@@ -88,11 +95,26 @@ export function Component() {
       manual: true,
       onSuccess() {
         Toast.success("翻译配置保存成功");
+        // 保存后立即重新加载并验证
+        translateService.getConfig().then((cfg) => {
+          console.log('[Setting] 保存后验证配置:', JSON.stringify({
+            enabled: cfg.enabled,
+            apiType: cfg.apiType,
+            apiUrl: cfg.apiUrl ? '已设置' : '未设置',
+            apiKey: cfg.apiKey ? `已设置(长度${cfg.apiKey.length})` : '未设置',
+            model: cfg.model,
+            targetLang: cfg.targetLang,
+          }));
+        });
+      },
+      onError(err: any) {
+        console.error('[Setting] 翻译配置保存失败:', err);
+        Toast.error(`翻译配置保存失败: ${err?.message || '未知错误'}`);
       },
     },
   );
 
-  /** 选择服务商时自动填入默认 URL/Model，并立即保存生效 */
+  /** 选择服务商时自动填入默认 URL/Model，并更新表单（不再自动保存，等用户手动点击保存按钮） */
   const handleProviderChange = useCallback((value: any) => {
     const apiType = value as ApiType;
     const defaults = translateService.applyProviderDefaults(apiType, translateConfig);
@@ -104,8 +126,8 @@ export function Component() {
       const formValues = translateFormRef.current.formApi.getValues() as Partial<TranslateConfig>;
       const newConfig = { ...translateConfig, ...formValues, apiType, apiUrl: defaults.apiUrl, model: defaults.model };
       setTranslateConfig(newConfig);
-      // 立即保存，确保切换服务商后其他组件能立即获取到最新配置
-      translateSetReq.run(newConfig);
+      // 不再自动保存，避免在用户未填写完整（如 apiKey）时保存不完整配置
+      // 用户需要点击"保存翻译配置"按钮手动保存
     }
   }, [translateConfig]);
 
@@ -164,9 +186,20 @@ export function Component() {
       <Card title="翻译设置" className="w-full mt-4">
         <Form
           ref={translateFormRef}
-          onSubmit={(values) => {
-            // 合并表单值与现有配置，保留表单中没有的字段（temperature、maxTokens 等）
-            translateSetReq.run({ ...translateConfig, ...values } as TranslateConfig);
+          onValueChange={handleTranslateFormChange}
+          onSubmit={async (values) => {
+            // 从存储重新加载当前配置作为基准（避免使用可能过期的 translateConfig 状态）
+            const currentCfg = await translateService.getConfig();
+            const mergedConfig = { ...currentCfg, ...values } as TranslateConfig;
+            console.log('[Setting] 保存翻译配置:', JSON.stringify({
+              enabled: mergedConfig.enabled,
+              apiType: mergedConfig.apiType,
+              apiUrl: mergedConfig.apiUrl ? '已设置' : '未设置',
+              apiKey: mergedConfig.apiKey ? `已设置(长度${mergedConfig.apiKey.length})` : '未设置',
+              model: mergedConfig.model,
+              targetLang: mergedConfig.targetLang,
+            }));
+            translateSetReq.run(mergedConfig);
           }}
           initValues={translateConfig}
           layout="vertical"

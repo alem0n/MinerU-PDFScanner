@@ -183,10 +183,18 @@ export class TranslateService {
    * @returns 与 texts 等长的 TranslateResult 数组
    */
   async translate(texts: string[], options: TranslateOptions = {}): Promise<TranslateResult[]> {
-    if (texts.length === 0) return []
+    if (texts.length === 0) {
+      logger.info(`[translate] texts为空, 直接返回[]`)
+      return []
+    }
+
+    logger.info(`[translate] ═══ 进入translate ═══ texts.length=${texts.length}, texts预览="${texts[0]?.slice(0, 50)}...", options.signal=${options.signal ? '已设置' : '未设置'}, options.skipCache=${options.skipCache}`)
 
     const cfg = await this.getConfig()
+    logger.info(`[translate] getConfig完成: apiType=${cfg.apiType}, model=${cfg.model}, targetLang=${cfg.targetLang}, enabled=${cfg.enabled}, apiUrl=${cfg.apiUrl ? '已设置' : '未设置'}, apiKey=${cfg.apiKey ? '已设置' : '未设置'}`)
+
     if (!(await this.isConfigured())) {
+      logger.error(`[translate] isConfigured=false, 抛出TranslateError`)
       throw new TranslateError('翻译引擎未配置, 请先在设置中配置', 'config')
     }
 
@@ -195,25 +203,35 @@ export class TranslateService {
       const key = this.cacheKey(texts[0], cfg.targetLang, cfg)
       const cached = this.requestCache.get(key)
       if (cached) {
-        logger.debug(`cache hit: "${texts[0].slice(0, 30)}..."`)
+        logger.info(`[translate] 缓存命中: key="${key.slice(0, 60)}...", 直接返回缓存结果`)
         return cached
       }
+      logger.info(`[translate] 缓存未命中: key="${key.slice(0, 60)}..."`)
     }
 
     // 并发控制
+    logger.info(`[translate] 等待信号量... (当前信号量max=${this.semaphore['max']})`)
+    const semaStart = Date.now()
     await this.semaphore.acquire()
+    const semaWait = Date.now() - semaStart
+    logger.info(`[translate] 获取信号量, 等待耗时=${semaWait}ms`)
     try {
+      const startTime = Date.now()
       const result = await this.translateWithRetry(texts, cfg, options)
+      const elapsed = Date.now() - startTime
+      logger.info(`[translate] translateWithRetry完成: 耗时=${elapsed}ms, 结果长度=${result.length}, 首条译文预览="${result[0]?.text?.slice(0, 60) || '空'}..."`)
 
       // 写入缓存 (单段)
       if (texts.length === 1) {
         const key = this.cacheKey(texts[0], cfg.targetLang, cfg)
         this.requestCache.set(key, result)
+        logger.info(`[translate] 写入缓存: key="${key.slice(0, 60)}..."`)
       }
 
       return result
     } finally {
       this.semaphore.release()
+      logger.info(`[translate] 释放信号量`)
     }
   }
 
@@ -226,21 +244,35 @@ export class TranslateService {
     const { retryTimes, timeoutMs } = cfg
     let lastError: Error | null = null
 
+    logger.info(`[translateWithRetry] ═══ 开始 ═══ texts.length=${texts.length}, retryTimes=${retryTimes}, timeoutMs=${timeoutMs}`)
+
     for (let attempt = 0; attempt <= retryTimes; attempt++) {
+      logger.info(`[translateWithRetry] 尝试第${attempt + 1}/${retryTimes + 1}次`)
+
       // 检查取消
       if (options.signal?.aborted) {
+        logger.warn(`[translateWithRetry] 外部signal已abort, 抛出AbortError`)
         throw new DOMException('The operation was aborted.', 'AbortError')
       }
 
       // 构建带超时的 AbortController
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+      const timeoutId = setTimeout(() => {
+        logger.warn(`[translateWithRetry] 第${attempt + 1}次尝试超时(${timeoutMs}ms), 触发内部abort`)
+        controller.abort()
+      }, timeoutMs)
 
       // 链接外部 signal
       const externalSignal = options.signal
-      const onExternalAbort = () => controller.abort()
+      const onExternalAbort = () => {
+        logger.info(`[translateWithRetry] 外部signal触发abort`)
+        controller.abort()
+      }
       if (externalSignal) {
-        if (externalSignal.aborted) controller.abort()
+        if (externalSignal.aborted) {
+          logger.info(`[translateWithRetry] 外部signal已aborted, 内部controller同步abort`)
+          controller.abort()
+        }
         else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
       }
 
@@ -256,7 +288,12 @@ export class TranslateService {
           glossary: options.glossary,
         }
 
+        logger.info(`[translateWithRetry] 第${attempt + 1}次: 调用engine.translate, targetLang=${cfg.targetLang}, sourceLang=${cfg.sourceLang}, apiType=${cfg.apiType}, model=${cfg.model}`)
+        const startTime = Date.now()
         const result = await engine.translate(request)
+        const elapsed = Date.now() - startTime
+        logger.info(`[translateWithRetry] 第${attempt + 1}次成功: 耗时=${elapsed}ms, 返回${result.length}条结果, 首条="${result[0]?.text?.slice(0, 60)}..."`)
+
         clearTimeout(timeoutId)
         if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
         return result
@@ -264,30 +301,44 @@ export class TranslateService {
         clearTimeout(timeoutId)
         if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
 
+        const isAbort = err?.name === 'AbortError'
+        const isAuth = err instanceof TranslateError && err.code === 'auth'
+        const isRateLimit = err instanceof TranslateError && err.code === 'rate_limit'
+        const isTimeout = isAbort && !externalSignal?.aborted
+
+        logger.warn(`[translateWithRetry] 第${attempt + 1}次失败: name=${err?.name}, message="${err?.message?.slice(0, 200)}", isAbort=${isAbort}, isAuth=${isAuth}, isRateLimit=${isRateLimit}, isTimeout=${isTimeout}`)
+
         // AbortError 不重试
-        if (err?.name === 'AbortError') {
-          if (externalSignal?.aborted) throw err
+        if (isAbort) {
+          if (externalSignal?.aborted) {
+            logger.info(`[translateWithRetry] 外部AbortError, 不重试, 直接抛出`)
+            throw err
+          }
           // 超时 abort → 可重试
+          logger.info(`[translateWithRetry] 超时AbortError, 可重试`)
         }
 
         // 鉴权错误不重试
-        if (err instanceof TranslateError && err.code === 'auth') {
+        if (isAuth) {
+          logger.error(`[translateWithRetry] 鉴权错误, 不重试, 直接抛出`)
           throw err
         }
 
         lastError = err
-        logger.warn(`translate attempt ${attempt + 1}/${retryTimes + 1} failed: ${err?.message || err}`)
 
         // 最后一次不等待
         if (attempt < retryTimes) {
-          const isRateLimit = err instanceof TranslateError && err.code === 'rate_limit'
           const baseDelay = isRateLimit ? 4000 : 1000
           const delay = baseDelay * Math.pow(2, attempt)
+          logger.info(`[translateWithRetry] 等待${delay}ms后重试...`)
           await new Promise((r) => setTimeout(r, delay))
+        } else {
+          logger.info(`[translateWithRetry] 已是最后一次尝试, 不再等待`)
         }
       }
     }
 
+    logger.error(`[translateWithRetry] 重试${retryTimes}次全部失败, 抛出最终错误: "${lastError?.message?.slice(0, 200)}"`)
     throw lastError || new TranslateError('翻译失败: 重试次数耗尽', 'unknown')
   }
 
