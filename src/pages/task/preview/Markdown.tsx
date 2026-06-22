@@ -4,7 +4,7 @@ import { useScrollPage } from "../../../hooks/useScrollPage";
 import { useEffect } from "react";
 import { usePreviewState } from "./state";
 import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
+
 const TRIGGER_CONTAINER_ID = "MARKDOWN_VIEWER";
 
 
@@ -39,7 +39,6 @@ export function Markdown(props: {
         <div data-page={content.page_idx} key={content.page_idx}>
           <MarkdownRender 
           remarkPlugins={[remarkMath]}
-          rehypePlugins={[rehypeKatex]}
           raw={content.content} />
         </div>
       ))}
