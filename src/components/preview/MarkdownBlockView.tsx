@@ -139,13 +139,14 @@ export function MarkdownBlockView({ blockData, theme = 'base', imageBasePath }: 
     setEditInfo(newEditInfo)
   }, [setEditInfo])
 
-  /** 右键菜单: 选中文本时弹出"翻译" */
+  /** 右键菜单: 弹出"翻译"选项（有选中文本则翻译选中，否则翻译整块） */
   const handleContextMenu = useCallback((e: React.MouseEvent, block: BlockData) => {
+    e.preventDefault()
     const selection = window.getSelection()
     const selectedText = selection?.toString().trim() || ''
-    if (!selectedText) return // 无选中文本, 让浏览器默认菜单显示
-    e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, blockId: block.id, selectedText })
+    const text = selectedText || block.text || ''
+    if (!text) return
+    setContextMenu({ x: e.clientX, y: e.clientY, blockId: block.id, selectedText: text })
   }, [])
 
   /** 点击"翻译"菜单项 */

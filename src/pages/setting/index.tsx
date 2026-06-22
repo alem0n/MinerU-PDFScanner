@@ -92,7 +92,7 @@ export function Component() {
     },
   );
 
-  /** 选择服务商时自动填入默认 URL/Model */
+  /** 选择服务商时自动填入默认 URL/Model，并立即保存生效 */
   const handleProviderChange = useCallback((value: any) => {
     const apiType = value as ApiType;
     const defaults = translateService.applyProviderDefaults(apiType, translateConfig);
@@ -101,7 +101,10 @@ export function Component() {
       translateFormRef.current.formApi.setValue("apiUrl", defaults.apiUrl);
       translateFormRef.current.formApi.setValue("model", defaults.model);
     }
-    setTranslateConfig((prev) => ({ ...prev, apiType, apiUrl: defaults.apiUrl, model: defaults.model }));
+    const newConfig = { ...translateConfig, apiType, apiUrl: defaults.apiUrl, model: defaults.model };
+    setTranslateConfig(newConfig);
+    // 立即保存，确保切换服务商后其他组件能立即获取到最新配置
+    translateSetReq.run(newConfig);
   }, [translateConfig]);
 
   console.log("data", data);
@@ -160,7 +163,8 @@ export function Component() {
         <Form
           ref={translateFormRef}
           onSubmit={(values) => {
-            translateSetReq.run(values as TranslateConfig);
+            // 合并表单值与现有配置，保留表单中没有的字段（temperature、maxTokens 等）
+            translateSetReq.run({ ...translateConfig, ...values } as TranslateConfig);
           }}
           initValues={translateConfig}
           layout="vertical"
@@ -184,13 +188,11 @@ export function Component() {
           <Form.Input
             field="apiUrl"
             label="API URL"
-            trigger="blur"
             placeholder="https://api.example.com/v1/chat/completions"
           />
           <Form.Input
             field="apiKey"
             label="API Key"
-            trigger="blur"
             type="password"
             placeholder="sk-..."
             extraText="API Key 仅存储在本机, 不会上传到任何服务器"
@@ -198,14 +200,13 @@ export function Component() {
           <Form.Input
             field="model"
             label="模型名称"
-            trigger="blur"
             placeholder="deepseek-chat"
           />
           <div className="flex gap-4">
             <Form.Select
               field="sourceLang"
               label="源语言"
-              style={{ width: '50%' }}
+              style={{ width: '100%' }}
             >
               {SOURCE_LANGS.map(([code, label]) => (
                 <Select.Option key={code} value={code}>{label}</Select.Option>
@@ -214,7 +215,7 @@ export function Component() {
             <Form.Select
               field="targetLang"
               label="目标语言"
-              style={{ width: '50%' }}
+              style={{ width: '100%' }}
             >
               {TARGET_LANGS.map(([code, label]) => (
                 <Select.Option key={code} value={code}>{label}</Select.Option>

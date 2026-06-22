@@ -55,7 +55,8 @@ export function ControlBar({ task, loading, onBack, onOpenFolder }: ControlBarPr
         ? `预热中 ${coverageEdge}/${totalPages}页`
         : '翻译全文'
 
-  const showTranslateButton = !loading && (task.state === 'unzipped' || task.state === 'done') && viewType === 'md'
+  const validStates = ['unzipped', 'done', 'completed'] as string[]
+  const showTranslateButton = !loading && validStates.includes(task.state) && viewType === 'md'
 
   const handleBack = useCallback(() => {
     logger.info('Back button clicked')
@@ -133,7 +134,7 @@ export function ControlBar({ task, loading, onBack, onOpenFolder }: ControlBarPr
               {translateButtonLabel}
             </button>
           )}
-          {!loading && (task.state === 'unzipped' || task.state === 'done') && (
+          {!loading && validStates.includes(task.state) && (
             <button
               onClick={handleOpenFolder}
               className="btn btn-icon btn-ghost"
