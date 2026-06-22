@@ -40,16 +40,25 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libglib2.0-dev
 
       - name: import windows certificate
-        if: matrix.platform == 'windows-latest' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != ''
+        if: matrix.platform == 'windows-latest'
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          New-Item -ItemType Directory -Path certificate
-          Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
-          certutil -decode certificate/tempCert.txt certificate/certificate.pfx
-          Remove-Item -path certificate -include tempCert.txt
-          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+          try {
+            if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE) -or [string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+              Write-Host "SKIP: Windows certificate not configured"
+              exit 0
+            }
+            New-Item -ItemType Directory -Path certificate -Force | Out-Null
+            Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
+            certutil -decode certificate/tempCert.txt certificate/certificate.pfx
+            Remove-Item -path certificate -include tempCert.txt
+            Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+          } catch {
+            Write-Host "WARN: Certificate import failed: $_"
+            exit 0
+          }
 
       - name: install app dependencies
         run: bun i
