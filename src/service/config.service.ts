@@ -29,13 +29,15 @@ export class ConfigService {
     }
 
 
-    async get() {
+    async get(): Promise<Config> {
         const appData = await appDataDir()
         const data = await this.store.get()
-        return Object.assign({
-            baseUrl: "http://127.0.0.1:8080",
-            cacheDir: appData
-        }, data)
+        // 安全合并：只覆盖 data 中有实际值的字段，避免 undefined / 空字符串冲掉默认值
+        return {
+            baseUrl: data?.baseUrl || "http://127.0.0.1:8080",
+            cacheDir: data?.cacheDir || appData,
+            downloadDir: data?.downloadDir || undefined,
+        }
     }
 
     /**

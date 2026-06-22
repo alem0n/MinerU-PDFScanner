@@ -25,6 +25,8 @@ tauri-plugin-fs = "2"
 tauri-plugin-upload = "2"
 tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
+dirs = "6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

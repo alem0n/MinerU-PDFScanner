@@ -368,11 +368,12 @@ export class TaskService {
   // ========================================================
 
   /**
-   * 处理任务完成状态：更新 DB → 清除缓存 → 通知 → 自动下载（若配置了下载目录）
+   * 处理任务完成状态：自动下载结果到缓存目录 → 解压 → 删除压缩包
    *
    * 自动下载行为：
-   * - 配置了 downloadDir：自动保存 ZIP 到该目录并通知
-   * - 未配置 downloadDir：仅通知"任务已完成"，用户可在任务列表页手动点击下载
+   * - 始终下载 ZIP 到 cacheDir 配置的路径
+   * - 下载完成后自动解压并删除 ZIP 文件
+   * - 用户可在任务列表页手动点击下载（使用 downloadDir）
    */
   private async handleTaskCompleted(task: Task): Promise<void> {
     clearCache("tasks_" + task.state);
@@ -382,26 +383,70 @@ export class TaskService {
     await this.taskRepository.update(task);
 
     const config = await configService.get();
+    const cacheDir = config.cacheDir;
 
-    if (config.downloadDir) {
-      console.log(
-        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 处理成功，检测到下载目录: ${config.downloadDir}，开始自动下载`,
-      );
-      const savedPath = await this.downloadAndSave(task);
-      if (savedPath) {
-        Notification.success({
-          title: "任务处理成功",
-          content: `文件：${task.file_name} 结果已保存到 ${savedPath}`,
-          duration: 5,
-        });
-      }
-    } else {
-      console.log(
-        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 处理成功，未配置下载目录，仅通知`,
-      );
+    if (!cacheDir) {
+      console.warn("[TaskService] cacheDir 未配置，无法自动下载");
       Notification.success({
         title: "任务处理成功",
         content: `文件：${task.file_name} 处理成功，点击"下载"按钮获取结果`,
+        duration: 5,
+      });
+      return;
+    }
+
+    try {
+      console.log(
+        `[TaskService] 任务 ${task.task_id} (${task.file_name}) 处理成功，自动下载到缓存: ${cacheDir}`,
+      );
+
+      // 1. 下载结果 ZIP
+      const blob = await apiClient.downloadTaskResult(task.task_id);
+      if (blob.size === 0) {
+        throw new Error("下载内容为空");
+      }
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // 2. 保存 ZIP 到缓存目录
+      const { writeFile } = await import("@tauri-apps/plugin-fs");
+      const { join } = await import("@tauri-apps/api/path");
+
+      const fileNameBase = task.file_name.replace(/\.[^/.]+$/, "");
+      const zipFileName = `${fileNameBase}_${task.task_id}.zip`;
+      const zipPath = await join(cacheDir, zipFileName);
+
+      await writeFile(zipPath, uint8Array);
+      console.log(`[TaskService] ZIP 已保存到缓存: ${zipPath} (${uint8Array.length} bytes)`);
+
+      // 3. 解压 → 展平引擎层 → 重命名为 {fileName}_{taskId}（通过 Rust 命令）
+      const { invoke } = await import("@tauri-apps/api/core");
+      const outputDirName = `${fileNameBase}_${task.task_id}`;
+      const extractedFiles: string[] = await invoke("unzip_file", {
+        zipPath,
+        targetDir: cacheDir,
+        outputDirName,
+      });
+      console.log(`[TaskService] 解压完成，共 ${extractedFiles.length} 个文件`);
+
+      // 4. 更新数据库：记录解压输出路径
+      const outputPath = await join(cacheDir, outputDirName);
+      task.unzip_file_output_path = outputPath;
+      task.unzip_file_path = zipPath;
+      await this.taskRepository.update(task);
+      console.log(`[TaskService] 数据库已更新: unzip_file_output_path = ${outputPath}`);
+
+      Notification.success({
+        title: "任务处理成功",
+        content: `文件：${task.file_name} 结果已保存到缓存目录`,
+        duration: 5,
+      });
+    } catch (error) {
+      console.error(`[TaskService] 自动下载/解压失败:`, error);
+      Notification.error({
+        title: "自动下载失败",
+        content: `文件：${task.file_name} 结果下载失败，请在任务列表中手动点击下载`,
         duration: 5,
       });
     }
