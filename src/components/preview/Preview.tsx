@@ -7,7 +7,7 @@ import { BuildJsonViewer } from '@/components/preview/JsonViewer'
 import { ChemViewer } from '@/components/preview/ChemViewer'
 import { PdfPanel } from '@/components/preview/PdfViewer'
 import { useUIStore, type PreviewViewType } from '@/stores/uiStore'
-import type { TaskData, BlockData, MergeConnection, ExportFormat } from '@/shared/types'
+import type { TaskData, BlockData, MergeConnection } from '@/shared/types'
 import { TASK_PROCESSING_STATES } from '@/shared/types'
 import { useMarkdownTheme } from '@/hooks/useMarkdownTheme'
 
@@ -19,9 +19,7 @@ export interface PreviewPageProps {
   error: string | null
   onRetry?: () => void
   onBack?: () => void
-  onFavorite?: () => void
   onOpenFolder?: (path: string) => void
-  onExport?: (format: ExportFormat) => void
   pdfUrl?: string
 }
 
@@ -33,9 +31,7 @@ export function PreviewPage({
   error,
   onRetry,
   onBack,
-  onFavorite,
   onOpenFolder,
-  onExport,
   pdfUrl,
 }: PreviewPageProps) {
   const { theme } = useMarkdownTheme()
@@ -70,7 +66,7 @@ export function PreviewPage({
   if (isProcessing) {
     return (
       <div className="flex flex-col h-full">
-        <ControlBar task={task} loading={true} onBack={onBack} onFavorite={onFavorite} onOpenFolder={onOpenFolder} onExport={onExport} />
+        <ControlBar task={task} loading={true} onBack={onBack} onOpenFolder={onOpenFolder} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin w-16 h-16 border-3 border-blue-200 border-t-blue-600 rounded-full mx-auto" />
@@ -85,7 +81,7 @@ export function PreviewPage({
   if (isFailed) {
     return (
       <div className="flex flex-col h-full">
-        <ControlBar task={task} loading={false} onBack={onBack} onFavorite={onFavorite} onOpenFolder={onOpenFolder} onExport={onExport} />
+        <ControlBar task={task} loading={false} onBack={onBack} onOpenFolder={onOpenFolder} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-500 text-lg font-medium">处理失败</p>
@@ -99,7 +95,7 @@ export function PreviewPage({
 
   return (
     <div className="flex flex-col h-full">
-      <ControlBar task={task} loading={false} onBack={onBack} onFavorite={onFavorite} onOpenFolder={onOpenFolder} onExport={onExport} />
+      <ControlBar task={task} loading={false} onBack={onBack} onOpenFolder={onOpenFolder} />
       <SplitPane
         left={<PdfPanel task={task} type={task.type || 'PDF'} blockData={blockData} showOverlay={showPdfOverlay}
           onToggleShowLayout={() => setShowPdfOverlay(!showPdfOverlay)} mergeConnections={mergeConnections}

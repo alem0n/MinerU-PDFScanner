@@ -2,7 +2,7 @@ import { useLoaderData, useNavigate } from "react-router-dom";
 import { PreviewPage } from "@/components/preview/Preview";
 import { openFolder } from "@/service/preview.service";
 import { LoadTaskResult } from "@/service/task.service";
-import type { TaskData, ExportFormat } from "@/shared/types";
+import type { TaskData } from "@/shared/types";
 import { getApiUrl } from "@/lib/config";
 
 export function Component() {
@@ -26,9 +26,7 @@ export function Component() {
       error={null}
       onBack={() => navigate(-1)}
       onRetry={() => window.location.reload()}
-      onFavorite={() => console.log("Favorite task:", task.task_id)}
       onOpenFolder={() => { if (task.unzip_file_output_path) openFolder(task.unzip_file_output_path) }}
-      onExport={(format: ExportFormat) => console.log("Export:", format, "task:", task.task_id)}
       pdfUrl={pdfUrl}
     />
   );
